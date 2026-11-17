@@ -66,7 +66,7 @@
   .upgrade-card .name { color: #58a6ff; font-weight: bold; margin-bottom: 6px; }
   .upgrade-card .desc { color: #8b949e; font-size: 13px; }
 </style>
-<!-- Подключаем PeerJS для мультиплеера -->
+<!-- Подключаем надежную библиотеку для мультиплеера (PeerJS) -->
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
@@ -100,7 +100,6 @@
     <button class="danger" onclick="logout()">Выйти</button>
   </div>
 
-  <!-- Блок мультиплеера -->
   <div class="panel">
     <h2>🌐 Мультиплеер</h2>
     <p style="color:#8b949e; margin: 8px 0;">
@@ -126,28 +125,35 @@
   <div class="levelup-box"><h2>⬆️ Уровень повышен!</h2><div class="upgrades" id="upgradesContainer"></div></div>
 </div>
 
-<script type="module">
-  // --- FIREBASE ---
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-  import { getFirestore, collection, getDocs, setDoc, doc, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+<!-- Основной скрипт игры -->
+<script>
+  // --- FIREBASE SDK (Импорт через CDN, чтобы работало без сборщиков) ---
+  // Мы используем динамический импорт прямо внутри скрипта
+  let db, currentUser = null;
+  
+  async function initFirebase() {
+    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js");
+    const { getFirestore, collection, getDocs, setDoc, doc, query, orderBy, limit } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js");
 
-  const firebaseConfig = {
-    apiKey: "AIzaSyB_8U1TVXhm_josJPrGzc8g1XPKwkrCQVM",
-    authDomain: "game-6dc1e.firebaseapp.com",
-    projectId: "game-6dc1e",
-    storageBucket: "game-6dc1e.firebasestorage.app",
-    messagingSenderId: "430588155366",
-    appId: "1:430588155366:web:fc79d342feadefa9e49f227",
-    measurementId: "G-NQH7JR6LT1"
-  };
+    const firebaseConfig = {
+      apiKey: "AIzaSyB_8U1TVXhm_josJPrGzc8g1XPKwkrCQVM",
+      authDomain: "game-6dc1e.firebaseapp.com",
+      projectId: "game-6dc1e",
+      storageBucket: "game-6dc1e.firebasestorage.app",
+      messagingSenderId: "430588155366",
+      appId: "1:430588155366:web:fc79d342feadefa9e49f227",
+      measurementId: "G-NQH7JR6LT1"
+    };
 
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
-
-  // --- АВТОРИЗАЦИЯ ---
-  let currentUser = null;
+    const app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    
+    // Делаем функции базы доступными глобально
+    window._fb = { collection, getDocs, setDoc, doc, query, orderBy, limit };
+  }
 
   window.auth = async (mode) => {
+    if (!db) { await initFirebase(); }
     const username = document.getElementById('username').value.trim();
     const password = document.getElementById('password').value.trim();
     const msg = document.getElementById('authMsg');
@@ -157,6 +163,7 @@
     const hash = btoa(password);
 
     try {
+      const { collection, getDocs, setDoc, doc, query } = window._fb;
       const userDoc = doc(db, "users", username);
       const userSnap = await getDocs(query(collection(db, "users")));
       let exists = false;
@@ -193,9 +200,9 @@
     document.getElementById('authScreen').classList.remove('hidden');
   };
 
-  // --- ТАБЛИЦА ОЧКОВ ---
   window.addScore = async (name, score) => {
     try {
+      const { collection, getDocs, setDoc, doc, query } = window._fb;
       const scoreDoc = doc(db, "scores", name);
       const snap = await getDocs(query(collection(db, "scores")));
       let existingScore = 0;
@@ -209,6 +216,7 @@
 
   window.renderLeaderboard = async () => {
     try {
+      const { collection, getDocs, query, orderBy, limit } = window._fb;
       const q = query(collection(db, "scores"), orderBy("score", "desc"), limit(10));
       const querySnapshot = await getDocs(q);
       const tbody = document.querySelector('#leaderboard tbody');
@@ -368,8 +376,7 @@
     if (player.invuln > 0) player.invuln--;
     if (spawnTimer === 1 && Math.random() < 0.0012) wave++;
 
-    // Отправка позиции в мультиплеер
-    sendState({ x: player.x, y: player.y });
+    if (sendState) { try { sendState({ x: player.x, y: player.y }); } catch(e){} }
   }
 
   function explode(x, y, color, count = 12, big = false) {
@@ -400,7 +407,6 @@
     ctx.beginPath(); ctx.moveTo(player.x + Math.cos(player.aimAngle)*player.r*0.5, player.y + Math.sin(player.aimAngle)*player.r*0.5);
     ctx.lineTo(player.x + Math.cos(player.aimAngle)*(player.r+18), player.y + Math.sin(player.aimAngle)*(player.r+18)); ctx.stroke();
     
-    // Отрисовка второго игрока
     if (remotePlayer) {
       ctx.fillStyle = '#3fb950';
       ctx.beginPath(); ctx.arc(remotePlayer.x, remotePlayer.y, 18, 0, Math.PI*2); ctx.fill();
@@ -428,23 +434,31 @@
   }
 
   // --- МУЛЬТИПЛЕЕР (PeerJS) ---
-  let peer = null, conn = null, myPeerId = null, remotePlayer = null;
+  let peer = null, conn = null, myPeerId = null, remotePlayer = null, sendState = null;
 
   window.initPeer = () => {
     if (peer) return;
-   peer = new Peer(null, {
-  host: 'xfenix.ru',
-  secure: true,
-  port: 443,
-  path: '/'
-});
+    // Используем публичный сервер PeerJS с защищенным соединением
+    peer = new Peer(null, {
+      host: '0.peerjs.com',
+      secure: true,
+      port: 443,
+      debug: 1
+    });
+    
     peer.on('open', id => {
       myPeerId = id;
       document.getElementById('myPeerId').textContent = id;
     });
+    
     peer.on('connection', c => {
       if (conn) { c.close(); return; }
       conn = c; setupConn();
+    });
+    
+    peer.on('error', (err) => {
+      console.log("PeerJS Error:", err);
+      document.getElementById('myPeerId').textContent = "Ошибка сети";
     });
   };
 
@@ -452,6 +466,7 @@
     const friendId = document.getElementById('friendId').value.trim();
     if (!friendId) { alert('Введите ID друга'); return; }
     if (conn) { alert('Уже подключено'); return; }
+    if (!peer) { alert('Сначала войдите'); return; }
     conn = peer.connect(friendId);
     setupConn();
   };
@@ -461,27 +476,29 @@
       setStatus('Мультиплеер', true);
       document.getElementById('mpMsg').style.color = '#3fb950';
       document.getElementById('mpMsg').textContent = 'Соединение установлено!';
+      
+      // Настраиваем прием сообщений
+      conn.on('data', data => {
+        if (data.x !== undefined) {
+          remotePlayer = { x: data.x, y: data.y };
+        }
+      });
+      
+      // Создаем функцию для отправки
+      sendState = (data) => { if (conn && conn.open) conn.send(data); };
     });
-    conn.on('data', data => {
-      if (data.x !== undefined) {
-        remotePlayer = { x: data.x, y: data.y };
-      }
-    });
+    
     conn.on('close', () => {
-      conn = null; remotePlayer = null;
+      conn = null; remotePlayer = null; sendState = null;
       setStatus('Одиночная', false);
       document.getElementById('mpMsg').style.color = '#f85149';
       document.getElementById('mpMsg').textContent = 'Соединение разорвано';
     });
   }
 
-  function sendState(data) {
-    if (conn && conn.open) { try { conn.send(data); } catch (e) {} }
-  }
-
   window.disconnectPeer = () => {
     if (conn) { conn.close(); conn = null; }
-    remotePlayer = null;
+    remotePlayer = null; sendState = null;
     setStatus('Одиночная', false);
     document.getElementById('mpMsg').textContent = '';
   };
@@ -496,6 +513,8 @@
 
   window.copyId = () => { if (myPeerId) navigator.clipboard.writeText(myPeerId); };
 
+  // Запуск базы при загрузке страницы
+  initFirebase();
 </script>
 </body>
 </html>
