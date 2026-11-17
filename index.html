@@ -66,7 +66,7 @@
   .upgrade-card .name { color: #58a6ff; font-weight: bold; margin-bottom: 6px; }
   .upgrade-card .desc { color: #8b949e; font-size: 13px; }
 </style>
-<!-- Подключаем Trystero (через модуль, так как это современная библиотека) -->
+<!-- Подключаем Trystero (децентрализованная сеть, обходит блокировки) -->
 <script type="module">
   import { joinRoom } from 'https://esm.sh/trystero@0.21.0/nostr';
   window.TrysteroJoinRoom = joinRoom;
@@ -103,6 +103,7 @@
     <button class="danger" onclick="logout()">Выйти</button>
   </div>
 
+  <!-- Блок мультиплеера -->
   <div class="panel">
     <h2>🌐 Мультиплеер (Trystero)</h2>
     <p style="color:#8b949e; margin: 8px 0;">
@@ -374,7 +375,6 @@
     if (player.invuln > 0) player.invuln--;
     if (spawnTimer === 1 && Math.random() < 0.0012) wave++;
 
-    // Отправка позиции в мультиплеер через Trystero
     if (window.sendTrysteroState) { try { window.sendTrysteroState({ x: player.x, y: player.y }); } catch(e){} }
   }
 
@@ -435,8 +435,6 @@
   // --- МУЛЬТИПЛЕЕР (Trystero) ---
   let room = null;
   let myPeerId = null;
-  let sendState = null;
-  let getState = null;
 
   window.joinGameRoom = async () => {
     if (!window.TrysteroJoinRoom) {
@@ -448,11 +446,12 @@
     const roomName = document.getElementById('roomNameInput').value.trim();
     if (!roomName) { alert('Введите имя комнаты'); return; }
 
+    document.getElementById('mpMsg').textContent = 'Подключение...';
+    document.getElementById('mpMsg').style.color = '#d29922';
+
     try {
-      // Подключаемся к комнате через Trystero (Nostr)
       room = window.TrysteroJoinRoom({ appId: 'circle-shooter-game' }, roomName);
       
-      // Получаем свой ID
       const self = await room.getSelf();
       myPeerId = self.userId;
       document.getElementById('myPeerId').textContent = myPeerId;
@@ -460,18 +459,15 @@
       document.getElementById('mpMsg').style.color = '#3fb950';
       document.getElementById('mpMsg').textContent = 'Вы в комнате! Ждем друга...';
 
-      // Создаем канал для передачи позиции
       const [send, get] = room.makeAction('pos');
-      sendState = send;
-      getState = get;
+      window.sendTrysteroState = send;
 
-      getState((data) => {
+      get((data) => {
         if (data.x !== undefined) {
           window.remoteTrysteroPlayer = { x: data.x, y: data.y };
         }
       });
 
-      // Обработка входа/выхода игроков
       room.onPeerJoin(peerId => {
         document.getElementById('mpMsg').textContent = 'Игрок подключился!';
         document.getElementById('mpMsg').style.color = '#3fb950';
@@ -495,7 +491,7 @@
       room = null;
       myPeerId = null;
       window.remoteTrysteroPlayer = null;
-      sendState = null;
+      window.sendTrysteroState = null;
       setStatus('Одиночная', false);
       document.getElementById('myPeerId').textContent = 'не в комнате';
       document.getElementById('mpMsg').textContent = 'Вы вышли из комнаты.';
@@ -512,7 +508,6 @@
     }
   }
 
-  // Запуск базы при загрузке страницы
   initFirebase();
 </script>
 </body>
