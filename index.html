@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Кружок с автоматом — Мультиплеер + Firebase</title>
+<title>Кружок с автоматом — Мультиплеер (Trystero)</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -66,8 +66,11 @@
   .upgrade-card .name { color: #58a6ff; font-weight: bold; margin-bottom: 6px; }
   .upgrade-card .desc { color: #8b949e; font-size: 13px; }
 </style>
-<!-- Подключаем надежную библиотеку для мультиплеера (PeerJS) -->
-<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<!-- Подключаем Trystero (через модуль, так как это современная библиотека) -->
+<script type="module">
+  import { joinRoom } from 'https://esm.sh/trystero@0.21.0/nostr';
+  window.TrysteroJoinRoom = joinRoom;
+</script>
 </head>
 <body>
 
@@ -101,16 +104,16 @@
   </div>
 
   <div class="panel">
-    <h2>🌐 Мультиплеер</h2>
+    <h2>🌐 Мультиплеер (Trystero)</h2>
     <p style="color:#8b949e; margin: 8px 0;">
       Ваш ID: <code id="myPeerId">подключение...</code>
       <button class="secondary" onclick="copyId()">Копировать</button>
     </p>
     <div class="mp-box">
-      <b>Подключиться к другу:</b><br>
-      <input id="friendId" placeholder="ID друга" />
-      <button onclick="connectToFriend()">Подключиться</button>
-      <button class="secondary" onclick="disconnectPeer()">Отключиться</button>
+      <b>Имя комнаты для игры с другом:</b><br>
+      <input id="roomNameInput" placeholder="Введите имя комнаты" value="game-room" />
+      <button onclick="joinGameRoom()">Войти в комнату</button>
+      <button class="secondary" onclick="leaveGameRoom()">Выйти из комнаты</button>
     </div>
     <p id="mpMsg" style="margin-top:10px; color:#8b949e;"></p>
   </div>
@@ -125,10 +128,8 @@
   <div class="levelup-box"><h2>⬆️ Уровень повышен!</h2><div class="upgrades" id="upgradesContainer"></div></div>
 </div>
 
-<!-- Основной скрипт игры -->
 <script>
-  // --- FIREBASE SDK (Импорт через CDN, чтобы работало без сборщиков) ---
-  // Мы используем динамический импорт прямо внутри скрипта
+  // --- FIREBASE SDK ---
   let db, currentUser = null;
   
   async function initFirebase() {
@@ -147,8 +148,6 @@
 
     const app = initializeApp(firebaseConfig);
     db = getFirestore(app);
-    
-    // Делаем функции базы доступными глобально
     window._fb = { collection, getDocs, setDoc, doc, query, orderBy, limit };
   }
 
@@ -189,7 +188,6 @@
   window.showGame = () => {
     document.getElementById('authScreen').classList.add('hidden');
     document.getElementById('gameScreen').classList.remove('hidden');
-    initPeer();
     window.renderLeaderboard();
     window.startGame();
   };
@@ -376,7 +374,8 @@
     if (player.invuln > 0) player.invuln--;
     if (spawnTimer === 1 && Math.random() < 0.0012) wave++;
 
-    if (sendState) { try { sendState({ x: player.x, y: player.y }); } catch(e){} }
+    // Отправка позиции в мультиплеер через Trystero
+    if (window.sendTrysteroState) { try { window.sendTrysteroState({ x: player.x, y: player.y }); } catch(e){} }
   }
 
   function explode(x, y, color, count = 12, big = false) {
@@ -407,9 +406,9 @@
     ctx.beginPath(); ctx.moveTo(player.x + Math.cos(player.aimAngle)*player.r*0.5, player.y + Math.sin(player.aimAngle)*player.r*0.5);
     ctx.lineTo(player.x + Math.cos(player.aimAngle)*(player.r+18), player.y + Math.sin(player.aimAngle)*(player.r+18)); ctx.stroke();
     
-    if (remotePlayer) {
+    if (window.remoteTrysteroPlayer) {
       ctx.fillStyle = '#3fb950';
-      ctx.beginPath(); ctx.arc(remotePlayer.x, remotePlayer.y, 18, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(window.remoteTrysteroPlayer.x, window.remoteTrysteroPlayer.y, 18, 0, Math.PI*2); ctx.fill();
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
     }
 
@@ -433,75 +432,77 @@
     ctx.fillText(`Счёт: ${score}`, W/2, H/2 + 10);
   }
 
-  // --- МУЛЬТИПЛЕЕР (PeerJS) ---
-  let peer = null, conn = null, myPeerId = null, remotePlayer = null, sendState = null;
+  // --- МУЛЬТИПЛЕЕР (Trystero) ---
+  let room = null;
+  let myPeerId = null;
+  let sendState = null;
+  let getState = null;
 
-  window.initPeer = () => {
-    if (peer) return;
-    // Используем публичный сервер PeerJS с защищенным соединением
-    peer = new Peer(null, {
-      host: '0.peerjs.com',
-      secure: true,
-      port: 443,
-      debug: 1
-    });
+  window.joinGameRoom = async () => {
+    if (!window.TrysteroJoinRoom) {
+      document.getElementById('mpMsg').textContent = 'Ошибка загрузки библиотеки. Обновите страницу.';
+      return;
+    }
+    if (room) { document.getElementById('mpMsg').textContent = 'Вы уже в комнате.'; return; }
     
-    peer.on('open', id => {
-      myPeerId = id;
-      document.getElementById('myPeerId').textContent = id;
-    });
-    
-    peer.on('connection', c => {
-      if (conn) { c.close(); return; }
-      conn = c; setupConn();
-    });
-    
-    peer.on('error', (err) => {
-      console.log("PeerJS Error:", err);
-      document.getElementById('myPeerId').textContent = "Ошибка сети";
-    });
-  };
+    const roomName = document.getElementById('roomNameInput').value.trim();
+    if (!roomName) { alert('Введите имя комнаты'); return; }
 
-  window.connectToFriend = () => {
-    const friendId = document.getElementById('friendId').value.trim();
-    if (!friendId) { alert('Введите ID друга'); return; }
-    if (conn) { alert('Уже подключено'); return; }
-    if (!peer) { alert('Сначала войдите'); return; }
-    conn = peer.connect(friendId);
-    setupConn();
-  };
-
-  function setupConn() {
-    conn.on('open', () => {
-      setStatus('Мультиплеер', true);
-      document.getElementById('mpMsg').style.color = '#3fb950';
-      document.getElementById('mpMsg').textContent = 'Соединение установлено!';
+    try {
+      // Подключаемся к комнате через Trystero (Nostr)
+      room = window.TrysteroJoinRoom({ appId: 'circle-shooter-game' }, roomName);
       
-      // Настраиваем прием сообщений
-      conn.on('data', data => {
+      // Получаем свой ID
+      const self = await room.getSelf();
+      myPeerId = self.userId;
+      document.getElementById('myPeerId').textContent = myPeerId;
+      setStatus('В комнате', true);
+      document.getElementById('mpMsg').style.color = '#3fb950';
+      document.getElementById('mpMsg').textContent = 'Вы в комнате! Ждем друга...';
+
+      // Создаем канал для передачи позиции
+      const [send, get] = room.makeAction('pos');
+      sendState = send;
+      getState = get;
+
+      getState((data) => {
         if (data.x !== undefined) {
-          remotePlayer = { x: data.x, y: data.y };
+          window.remoteTrysteroPlayer = { x: data.x, y: data.y };
         }
       });
-      
-      // Создаем функцию для отправки
-      sendState = (data) => { if (conn && conn.open) conn.send(data); };
-    });
-    
-    conn.on('close', () => {
-      conn = null; remotePlayer = null; sendState = null;
-      setStatus('Одиночная', false);
-      document.getElementById('mpMsg').style.color = '#f85149';
-      document.getElementById('mpMsg').textContent = 'Соединение разорвано';
-    });
-  }
 
-  window.disconnectPeer = () => {
-    if (conn) { conn.close(); conn = null; }
-    remotePlayer = null; sendState = null;
-    setStatus('Одиночная', false);
-    document.getElementById('mpMsg').textContent = '';
+      // Обработка входа/выхода игроков
+      room.onPeerJoin(peerId => {
+        document.getElementById('mpMsg').textContent = 'Игрок подключился!';
+        document.getElementById('mpMsg').style.color = '#3fb950';
+      });
+
+      room.onPeerLeave(peerId => {
+        window.remoteTrysteroPlayer = null;
+        document.getElementById('mpMsg').textContent = 'Игрок отключился.';
+        document.getElementById('mpMsg').style.color = '#f85149';
+      });
+
+    } catch (e) {
+      document.getElementById('mpMsg').textContent = 'Ошибка подключения: ' + e.message;
+      console.error(e);
+    }
   };
+
+  window.leaveGameRoom = () => {
+    if (room) {
+      room.leave();
+      room = null;
+      myPeerId = null;
+      window.remoteTrysteroPlayer = null;
+      sendState = null;
+      setStatus('Одиночная', false);
+      document.getElementById('myPeerId').textContent = 'не в комнате';
+      document.getElementById('mpMsg').textContent = 'Вы вышли из комнаты.';
+    }
+  };
+
+  window.copyId = () => { if (myPeerId) navigator.clipboard.writeText(myPeerId); };
 
   function setStatus(text, on) {
     const el = document.getElementById('mpStatus');
@@ -510,8 +511,6 @@
       el.className = 'tag ' + (on ? 'on' : 'off');
     }
   }
-
-  window.copyId = () => { if (myPeerId) navigator.clipboard.writeText(myPeerId); };
 
   // Запуск базы при загрузке страницы
   initFirebase();
