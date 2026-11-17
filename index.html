@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Кружок с автоматом — Мультиплеер + Firebase</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d1117; color: #c9d1d9;
+    font-family: 'Segoe UI', sans-serif;
+    display: flex; flex-direction: column;
+    align-items: center; min-height: 100vh; padding: 20px;
+  }
+  h1 { color: #58a6ff; margin-bottom: 15px; }
+  .panel {
+    background: #161b22; border: 1px solid #30363d;
+    border-radius: 10px; padding: 20px; margin-bottom: 15px;
+    width: 100%; max-width: 820px;
+  }
+  input {
+    padding: 8px 12px; margin: 5px; border-radius: 6px;
+    border: 1px solid #30363d; background: #0d1117; color: #c9d1d9;
+    width: 200px;
+  }
+  button {
+    padding: 8px 18px; margin: 5px; border-radius: 6px;
+    border: none; background: #238636; color: white;
+    cursor: pointer; font-weight: bold;
+  }
+  button:hover { background: #2ea043; }
+  button.danger { background: #da3633; }
+  button.danger:hover { background: #f85149; }
+  button.secondary { background: #30363d; }
+  button.secondary:hover { background: #484f58; }
+  canvas {
+    border: 2px solid #30363d; border-radius: 10px;
+    background: #010409; display: block; cursor: crosshair;
+  }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  th, td { padding: 8px; border-bottom: 1px solid #30363d; text-align: left; }
+  th { color: #58a6ff; }
+  .hidden { display: none !important; }
+  .hud {
+    display: flex; justify-content: space-between;
+    width: 800px; max-width: 100%; margin-bottom: 10px;
+    font-size: 16px; flex-wrap: wrap; gap: 10px; align-items: center;
+  }
+  .hud span { color: #f0883e; font-weight: bold; }
+  #status { color: #8b949e; margin: 10px 0; text-align: center; min-height: 24px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; }
+  .mp-box { background: #0d1117; border: 1px dashed #30363d; border-radius: 8px; padding: 15px; margin-top: 10px; }
+  code { background: #0d1117; padding: 2px 6px; border-radius: 4px; color: #79c0ff; }
+  .tag { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 13px; }
+  .tag.on { background: #238636; color: white; }
+  .tag.off { background: #484f58; color: #c9d1d9; }
+  .bar { display: inline-block; width: 110px; height: 12px; background: #30363d; border-radius: 6px; overflow: hidden; vertical-align: middle; margin-left: 4px; }
+  .bar-fill { height: 100%; transition: width 0.2s; }
+  #levelUpScreen { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; z-index: 100; }
+  #levelUpScreen.hidden { display: none !important; }
+  .levelup-box { background: #161b22; border: 2px solid #58a6ff; border-radius: 14px; padding: 30px; max-width: 720px; width: 90%; box-shadow: 0 0 40px rgba(88,166,255,0.4); }
+  .levelup-box h2 { color: #58a6ff; text-align: center; margin-bottom: 20px; font-size: 26px; }
+  .upgrades { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .upgrade-card { background: #0d1117; border: 1px solid #30363d; border-radius: 10px; padding: 15px; cursor: pointer; transition: all 0.2s; text-align: center; }
+  .upgrade-card:hover { border-color: #58a6ff; transform: translateY(-4px); box-shadow: 0 8px 20px rgba(88,166,255,0.3); }
+  .upgrade-card .icon { font-size: 32px; margin-bottom: 8px; }
+  .upgrade-card .name { color: #58a6ff; font-weight: bold; margin-bottom: 6px; }
+  .upgrade-card .desc { color: #8b949e; font-size: 13px; }
+</style>
+<!-- Подключаем PeerJS для мультиплеера -->
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+</head>
+<body>
+
+<h1>🔫 Кружок с автоматом 🔫</h1>
+
+<div id="authScreen" class="panel">
+  <h2>Вход / Регистрация</h2>
+  <div class="row">
+    <input id="username" placeholder="Логин" autocomplete="off" />
+    <input id="password" type="password" placeholder="Пароль" />
+  </div>
+  <button onclick="auth('login')">Войти</button>
+  <button onclick="auth('register')">Зарегистрироваться</button>
+  <p id="authMsg" style="color:#f85149; margin-top:10px;"></p>
+</div>
+
+<div id="gameScreen" class="hidden" style="display:flex; flex-direction:column; align-items:center; width:100%;">
+  <div class="hud">
+    <div>Очки: <span id="myScore">0</span></div>
+    <div>Ур.: <span id="myLevel">1</span><div class="bar"><div id="xpFill" class="bar-fill" style="width:0%; background:#a371f7;"></div></div></div>
+    <div>HP: <span id="myHP">100</span><div class="bar"><div id="hpFill" class="bar-fill" style="width:100%; background:#3fb950;"></div></div></div>
+    <div>Волна: <span id="wave">1</span></div>
+    <div>Статус: <span id="mpStatus" class="tag off">Одиночная</span></div>
+  </div>
+  <canvas id="game" width="800" height="500"></canvas>
+  <p id="status">WASD — движение, мышь — прицел, ЛКМ/пробел — стрельба.</p>
+  
+  <div class="row">
+    <button onclick="startGame()">Начать заново</button>
+    <button class="danger" onclick="logout()">Выйти</button>
+  </div>
+
+  <!-- Блок мультиплеера -->
+  <div class="panel">
+    <h2>🌐 Мультиплеер</h2>
+    <p style="color:#8b949e; margin: 8px 0;">
+      Ваш ID: <code id="myPeerId">подключение...</code>
+      <button class="secondary" onclick="copyId()">Копировать</button>
+    </p>
+    <div class="mp-box">
+      <b>Подключиться к другу:</b><br>
+      <input id="friendId" placeholder="ID друга" />
+      <button onclick="connectToFriend()">Подключиться</button>
+      <button class="secondary" onclick="disconnectPeer()">Отключиться</button>
+    </div>
+    <p id="mpMsg" style="margin-top:10px; color:#8b949e;"></p>
+  </div>
+
+  <div class="panel">
+    <h2>🏆 Таблица очков (Firebase)</h2>
+    <table id="leaderboard"><thead><tr><th>Место</th><th>Игрок</th><th>Очки</th></tr></thead><tbody></tbody></table>
+  </div>
+</div>
+
+<div id="levelUpScreen" class="hidden">
+  <div class="levelup-box"><h2>⬆️ Уровень повышен!</h2><div class="upgrades" id="upgradesContainer"></div></div>
+</div>
+
+<script type="module">
+  // --- FIREBASE ---
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+  import { getFirestore, collection, getDocs, setDoc, doc, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyB_8U1TVXhm_josJPrGzc8g1XPKwkrCQVM",
+    authDomain: "game-6dc1e.firebaseapp.com",
+    projectId: "game-6dc1e",
+    storageBucket: "game-6dc1e.firebasestorage.app",
+    messagingSenderId: "430588155366",
+    appId: "1:430588155366:web:fc79d342feadefa9e49f227",
+    measurementId: "G-NQH7JR6LT1"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  // --- АВТОРИЗАЦИЯ ---
+  let currentUser = null;
+
+  window.auth = async (mode) => {
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value.trim();
+    const msg = document.getElementById('authMsg');
+    msg.textContent = '';
+
+    if (!username || !password) { msg.textContent = 'Заполните поля'; return; }
+    const hash = btoa(password);
+
+    try {
+      const userDoc = doc(db, "users", username);
+      const userSnap = await getDocs(query(collection(db, "users")));
+      let exists = false;
+      userSnap.forEach(d => { if (d.id === username) exists = true; });
+
+      if (mode === 'register') {
+        if (exists) { msg.textContent = 'Пользователь уже существует'; return; }
+        await setDoc(userDoc, { password: hash });
+        msg.style.color = '#3fb950'; msg.textContent = 'Успешно! Войдите.';
+      } else {
+        if (!exists) { msg.textContent = 'Неверный логин или пароль'; return; }
+        const userData = (await getDocs(query(collection(db, "users")))).docs.find(d => d.id === username).data();
+        if (userData.password !== hash) { msg.textContent = 'Неверный логин или пароль'; return; }
+        
+        currentUser = username;
+        window.showGame();
+      }
+    } catch (e) {
+      msg.textContent = 'Ошибка БД: ' + e.message;
+    }
+  };
+
+  window.showGame = () => {
+    document.getElementById('authScreen').classList.add('hidden');
+    document.getElementById('gameScreen').classList.remove('hidden');
+    initPeer();
+    window.renderLeaderboard();
+    window.startGame();
+  };
+
+  window.logout = () => {
+    currentUser = null;
+    document.getElementById('gameScreen').classList.add('hidden');
+    document.getElementById('authScreen').classList.remove('hidden');
+  };
+
+  // --- ТАБЛИЦА ОЧКОВ ---
+  window.addScore = async (name, score) => {
+    try {
+      const scoreDoc = doc(db, "scores", name);
+      const snap = await getDocs(query(collection(db, "scores")));
+      let existingScore = 0;
+      snap.forEach(d => { if (d.id === name) existingScore = d.data().score; });
+
+      if (score > existingScore) {
+        await setDoc(scoreDoc, { name, score });
+      }
+    } catch(e) { console.log(e); }
+  };
+
+  window.renderLeaderboard = async () => {
+    try {
+      const q = query(collection(db, "scores"), orderBy("score", "desc"), limit(10));
+      const querySnapshot = await getDocs(q);
+      const tbody = document.querySelector('#leaderboard tbody');
+      tbody.innerHTML = '';
+      
+      let i = 1;
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        tbody.innerHTML += `<tr><td>${i}</td><td>${data.name}</td><td>${data.score}</td></tr>`;
+        i++;
+      });
+      if (i === 1) tbody.innerHTML = '<tr><td colspan="3">Пока нет результатов</td></tr>';
+    } catch (e) { console.log(e); }
+  };
+
+  // --- ИГРА ---
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  let player, enemies, bullets, particles, enemyBullets;
+  let wave, spawnTimer, spawnInterval, running, animId, score;
+  let keys = {}, mouse = { x: W/2, y: H/2, down: false };
+  let gamePaused = false;
+
+  document.addEventListener('keydown', e => { keys[e.key] = true; });
+  document.addEventListener('keyup', e => { keys[e.key] = false; });
+  canvas.addEventListener('mousemove', e => {
+    const r = canvas.getBoundingClientRect();
+    mouse.x = e.clientX - r.left; mouse.y = e.clientY - r.top;
+  });
+  canvas.addEventListener('mousedown', () => mouse.down = true);
+  canvas.addEventListener('mouseup', () => mouse.down = false);
+
+  window.startGame = () => {
+    player = { x: W/2, y: H/2, r: 18, speed: 4.5, hp: 100, maxHp: 100, color: '#58a6ff', aimAngle: 0, shootCooldown: 0, shootCD: 6, invuln: 0, level: 1, xp: 0, xpToNext: 30, damage: 1, bulletSpeed: 11, bulletRadius: 4, doubleShot: false, lifesteal: 0, extraPierce: 0 };
+    enemies = []; bullets = []; enemyBullets = []; particles = [];
+    wave = 1; score = 0; spawnTimer = 0; spawnInterval = 90; running = true; gamePaused = false;
+    updateHUD();
+    cancelAnimationFrame(animId);
+    loop();
+  };
+
+  function updateHUD() {
+    document.getElementById('myScore').textContent = score;
+    document.getElementById('myHP').textContent = Math.max(0, Math.ceil(player.hp));
+    document.getElementById('hpFill').style.width = Math.max(0, (player.hp / player.maxHp) * 100) + '%';
+    document.getElementById('myLevel').textContent = player.level;
+    document.getElementById('xpFill').style.width = Math.min(100, (player.xp / player.xpToNext) * 100) + '%';
+    document.getElementById('wave').textContent = wave;
+  }
+
+  function spawnEnemy() {
+    const side = Math.floor(Math.random() * 4);
+    let x, y;
+    if (side === 0) { x = Math.random() * W; y = -40; }
+    if (side === 1) { x = W + 40; y = Math.random() * H; }
+    if (side === 2) { x = Math.random() * W; y = H + 40; }
+    if (side === 3) { x = -40; y = Math.random() * H; }
+    const lvl = player.level, wv = wave;
+    const bossChance = 0.06 + lvl * 0.025 + wv * 0.01;
+    const fatChance = 0.30 + lvl * 0.035 + wv * 0.015;
+    let type = 'small'; const r1 = Math.random();
+    if (r1 < bossChance) type = 'boss'; else if (r1 < bossChance + fatChance) type = 'fat';
+    
+    let r, hp, spd, color, xp, sc, dmg;
+    if (type === 'small') { r = 16; hp = (3 + wv * 0.8 + lvl * 1.6); spd = 1.7 + lvl * 0.08; color = '#f85149'; xp = 5; sc = 10; dmg = 10 + lvl * 1.2; }
+    else if (type === 'fat') { r = 30; hp = (12 + wv * 2.5 + lvl * 4.5); spd = 1.0 + lvl * 0.05; color = '#a371f7'; xp = 15; sc = 30; dmg = 18 + lvl * 2; }
+    else { r = 48; hp = (40 + wv * 8 + lvl * 14); spd = 0.7 + lvl * 0.04; color = '#f0883e'; xp = 50; sc = 100; dmg = 30 + lvl * 3; }
+    
+    enemies.push({ x, y, r, hp, maxHp: hp, speed: spd, color, type, xp, scoreVal: sc, dmg, canShoot: type === 'boss', shootTimer: 60, bulletDmg: 8 + lvl * 1.5 });
+  }
+
+  function gainXP(amount) {
+    player.xp += amount;
+    while (player.xp >= player.xpToNext) {
+      player.xp -= player.xpToNext; player.level++; player.xpToNext = Math.floor(player.xpToNext * 1.5);
+      player.hp = Math.min(player.maxHp, player.hp + 10); updateHUD(); showLevelUp();
+    }
+  }
+
+  const UPGRADES = [
+    { icon: '💥', name: 'Урон +0.5', desc: 'Пули больнее', apply: p => p.damage += 0.5 },
+    { icon: '⚡', name: 'Скорострельность', desc: 'Стрельба быстрее', apply: p => p.shootCD = Math.max(3, p.shootCD - 0.6) },
+    { icon: '👟', name: 'Скорость +8%', desc: 'Двигаетесь быстрее', apply: p => p.speed *= 1.08 },
+    { icon: '❤️', name: 'Макс. HP +15', desc: 'Больше здоровья', apply: p => { p.maxHp += 15; p.hp += 15; } },
+    { icon: '🩸', name: 'Вампиризм +1', desc: '+1 HP за убийство', apply: p => p.lifesteal += 1 }
+  ];
+
+  function showLevelUp() {
+    gamePaused = true;
+    const c = document.getElementById('upgradesContainer'); c.innerHTML = '';
+    const pool = UPGRADES.sort(() => Math.random() - 0.5).slice(0, 3);
+    for (const up of pool) {
+      const card = document.createElement('div'); card.className = 'upgrade-card';
+      card.innerHTML = `<div class="icon">${up.icon}</div><div class="name">${up.name}</div><div class="desc">${up.desc}</div>`;
+      card.onclick = () => { up.apply(player); document.getElementById('levelUpScreen').classList.add('hidden'); gamePaused = false; updateHUD(); };
+      c.appendChild(card);
+    }
+    document.getElementById('levelUpScreen').classList.remove('hidden');
+  }
+
+  function loop() { if (!running) return; if (!gamePaused) update(); draw(); animId = requestAnimationFrame(loop); }
+
+  function update() {
+    let dx = 0, dy = 0;
+    if (keys['a'] || keys['A'] || keys['ф'] || keys['Ф']) dx -= 1;
+    if (keys['d'] || keys['D'] || keys['в'] || keys['В']) dx += 1;
+    if (keys['w'] || keys['W'] || keys['ц'] || keys['Ц']) dy -= 1;
+    if (keys['s'] || keys['S'] || keys['ы'] || keys['Ы']) dy += 1;
+    if (dx && dy) { dx *= 0.707; dy *= 0.707; }
+    player.x += dx * player.speed; player.y += dy * player.speed;
+    player.x = Math.max(player.r, Math.min(W - player.r, player.x));
+    player.y = Math.max(player.r, Math.min(H - player.r, player.y));
+    player.aimAngle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+
+    if (player.shootCooldown > 0) player.shootCooldown--;
+    if ((mouse.down || keys[' ']) && player.shootCooldown <= 0) {
+      const a = player.aimAngle;
+      bullets.push({ x: player.x + Math.cos(a)*(player.r+8), y: player.y + Math.sin(a)*(player.r+8), vx: Math.cos(a)*player.bulletSpeed, vy: Math.sin(a)*player.bulletSpeed, r: player.bulletRadius, damage: player.damage, pierce: player.extraPierce, life: 80 });
+      player.shootCooldown = player.shootCD;
+    }
+
+    spawnTimer++;
+    if (spawnTimer >= spawnInterval) { spawnTimer = 0; spawnEnemy(); spawnInterval = Math.max(25, 90 - wave * 5 - player.level * 2); }
+
+    for (let e of enemies) {
+      const ang = Math.atan2(player.y - e.y, player.x - e.x);
+      e.x += Math.cos(ang) * e.speed; e.y += Math.sin(ang) * e.speed;
+      if (e.canShoot) { e.shootTimer--; if (e.shootTimer <= 0) { e.shootTimer = 90; for (let k = -1; k <= 1; k++) enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(ang + k*0.25)*3.5, vy: Math.sin(ang + k*0.25)*3.5, r: 6, life: 200, damage: e.bulletDmg }); } }
+      if (Math.hypot(e.x-player.x, e.y-player.y) < e.r+player.r && player.invuln <= 0) { player.hp -= e.dmg; player.invuln = 40; explode(player.x, player.y, '#f85149', 20); e.hp = 0; updateHUD(); if (player.hp <= 0) { gameOver(); return; } }
+    }
+
+    bullets = bullets.filter(b => {
+      b.x += b.vx; b.y += b.vy; b.life--;
+      if (b.life <= 0 || b.x < -20 || b.x > W + 20 || b.y < -20 || b.y > H + 20) return false;
+      for (let e of enemies) {
+        if (e.hp <= 0) continue;
+        if (Math.hypot(b.x-e.x, b.y-e.y) < e.r+b.r) {
+          e.hp -= b.damage; explode(b.x, b.y, e.color, 5);
+          if (e.hp <= 0) { score += e.scoreVal; gainXP(e.xp); if (player.lifesteal > 0) player.hp = Math.min(player.maxHp, player.hp + player.lifesteal); explode(e.x, e.y, e.color, 18, e.type === 'boss'); updateHUD(); }
+          if (b.pierce > 0) { b.pierce--; continue; }
+          return false;
+        }
+      }
+      return true;
+    });
+
+    enemies = enemies.filter(e => e.hp > 0);
+    enemyBullets = enemyBullets.filter(b => {
+      b.x += b.vx; b.y += b.vy; b.life--;
+      if (b.life <= 0 || b.x < -20 || b.x > W + 20 || b.y < -20 || b.y > H + 20) return false;
+      if (player.invuln <= 0 && Math.hypot(b.x-player.x, b.y-player.y) < player.r+b.r) { player.hp -= b.damage; player.invuln = 20; explode(player.x, player.y, '#f85149', 8); updateHUD(); if (player.hp <= 0) { gameOver(); return false; } return false; }
+      return true;
+    });
+    
+    particles = particles.filter(p => { p.x += p.vx; p.y += p.vy; p.vx *= 0.95; p.vy *= 0.95; p.life--; return p.life > 0; });
+    if (player.invuln > 0) player.invuln--;
+    if (spawnTimer === 1 && Math.random() < 0.0012) wave++;
+
+    // Отправка позиции в мультиплеер
+    sendState({ x: player.x, y: player.y });
+  }
+
+  function explode(x, y, color, count = 12, big = false) {
+    for (let i = 0; i < count; i++) { const a = Math.random() * Math.PI * 2, sp = 1 + Math.random() * (big ? 7 : 4); particles.push({ x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp, life: 30 + Math.random()*20, maxLife: 50, color, r: 2 + Math.random()*(big ? 5 : 3) }); }
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    ctx.strokeStyle = '#0d1a2b'; ctx.lineWidth = 1;
+    for (let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    for (let p of particles) { ctx.globalAlpha = p.life / p.maxLife; ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); }
+    ctx.globalAlpha = 1;
+    for (let b of bullets) { ctx.fillStyle = '#f0e130'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.fill(); }
+    for (let b of enemyBullets) { ctx.fillStyle = '#ff7b72'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.fill(); }
+    for (let e of enemies) {
+      ctx.fillStyle = e.color; ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI*2); ctx.fill();
+      if (e.type === 'fat') { ctx.strokeStyle = '#d2a8ff'; ctx.lineWidth = 3; ctx.stroke(); }
+      if (e.type === 'boss') { ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 4; ctx.stroke(); }
+      if ((e.type === 'fat' || e.type === 'boss') && e.hp < e.maxHp) {
+        ctx.fillStyle = '#30363d'; ctx.fillRect(e.x - e.r, e.y - e.r - 14, e.r*2, 6);
+        ctx.fillStyle = e.type === 'boss' ? '#ffd700' : '#3fb950'; ctx.fillRect(e.x - e.r, e.y - e.r - 14, e.r*2 * (e.hp/e.maxHp), 6);
+      }
+    }
+    ctx.fillStyle = player.color; ctx.beginPath(); ctx.arc(player.x, player.y, player.r, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#79c0ff'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.strokeStyle = '#c9d1d9'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(player.x + Math.cos(player.aimAngle)*player.r*0.5, player.y + Math.sin(player.aimAngle)*player.r*0.5);
+    ctx.lineTo(player.x + Math.cos(player.aimAngle)*(player.r+18), player.y + Math.sin(player.aimAngle)*(player.r+18)); ctx.stroke();
+    
+    // Отрисовка второго игрока
+    if (remotePlayer) {
+      ctx.fillStyle = '#3fb950';
+      ctx.beginPath(); ctx.arc(remotePlayer.x, remotePlayer.y, 18, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+    }
+
+    ctx.strokeStyle = '#f0e130'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(mouse.x, mouse.y, 12, 0, Math.PI*2);
+    ctx.moveTo(mouse.x - 18, mouse.y); ctx.lineTo(mouse.x - 6, mouse.y);
+    ctx.moveTo(mouse.x + 6, mouse.y); ctx.lineTo(mouse.x + 18, mouse.y);
+    ctx.moveTo(mouse.x, mouse.y - 18); ctx.lineTo(mouse.x, mouse.y - 6);
+    ctx.moveTo(mouse.x, mouse.y + 6); ctx.lineTo(mouse.x, mouse.y + 18); ctx.stroke();
+  }
+
+  function gameOver() {
+    running = false; cancelAnimationFrame(animId);
+    window.addScore(currentUser, score);
+    setTimeout(() => window.renderLeaderboard(), 1000);
+    document.getElementById('status').textContent = `Игра окончена! Счёт: ${score}, уровень: ${player.level}. Сохранено в базу!`;
+    ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#f85149'; ctx.font = 'bold 48px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('GAME OVER', W/2, H/2 - 40);
+    ctx.fillStyle = '#c9d1d9'; ctx.font = '24px sans-serif';
+    ctx.fillText(`Счёт: ${score}`, W/2, H/2 + 10);
+  }
+
+  // --- МУЛЬТИПЛЕЕР (PeerJS) ---
+  let peer = null, conn = null, myPeerId = null, remotePlayer = null;
+
+  window.initPeer = () => {
+    if (peer) return;
+    peer = new Peer();
+    peer.on('open', id => {
+      myPeerId = id;
+      document.getElementById('myPeerId').textContent = id;
+    });
+    peer.on('connection', c => {
+      if (conn) { c.close(); return; }
+      conn = c; setupConn();
+    });
+  };
+
+  window.connectToFriend = () => {
+    const friendId = document.getElementById('friendId').value.trim();
+    if (!friendId) { alert('Введите ID друга'); return; }
+    if (conn) { alert('Уже подключено'); return; }
+    conn = peer.connect(friendId);
+    setupConn();
+  };
+
+  function setupConn() {
+    conn.on('open', () => {
+      setStatus('Мультиплеер', true);
+      document.getElementById('mpMsg').style.color = '#3fb950';
+      document.getElementById('mpMsg').textContent = 'Соединение установлено!';
+    });
+    conn.on('data', data => {
+      if (data.x !== undefined) {
+        remotePlayer = { x: data.x, y: data.y };
+      }
+    });
+    conn.on('close', () => {
+      conn = null; remotePlayer = null;
+      setStatus('Одиночная', false);
+      document.getElementById('mpMsg').style.color = '#f85149';
+      document.getElementById('mpMsg').textContent = 'Соединение разорвано';
+    });
+  }
+
+  function sendState(data) {
+    if (conn && conn.open) { try { conn.send(data); } catch (e) {} }
+  }
+
+  window.disconnectPeer = () => {
+    if (conn) { conn.close(); conn = null; }
+    remotePlayer = null;
+    setStatus('Одиночная', false);
+    document.getElementById('mpMsg').textContent = '';
+  };
+
+  function setStatus(text, on) {
+    const el = document.getElementById('mpStatus');
+    if (el) {
+      el.textContent = text; 
+      el.className = 'tag ' + (on ? 'on' : 'off');
+    }
+  }
+
+  window.copyId = () => { if (myPeerId) navigator.clipboard.writeText(myPeerId); };
+
+</script>
+</body>
+</html>
