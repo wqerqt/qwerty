@@ -432,7 +432,12 @@
 
   window.initPeer = () => {
     if (peer) return;
-    peer = new Peer();
+    peer = new Peer(null, {
+  host: '0.peerjs.com',
+  secure: true,
+  port: 443,
+  debug: 2
+});
     peer.on('open', id => {
       myPeerId = id;
       document.getElementById('myPeerId').textContent = id;
