@@ -66,6 +66,8 @@
   .upgrade-card .name { color: #58a6ff; font-weight: bold; margin-bottom: 6px; }
   .upgrade-card .desc { color: #8b949e; font-size: 13px; }
 </style>
+<!-- Библиотека для мультиплеера -->
+<script src="https://cdn.scaledrone.com/scaledrone.min.js"></script>
 </head>
 <body>
 
@@ -99,10 +101,9 @@
   </div>
 
   <div class="panel">
-    <h2>🌐 Мультиплеер (WebSocket)</h2>
+    <h2>🌐 Мультиплеер (Scaledrone)</h2>
     <p style="color:#8b949e; margin: 8px 0;">
       Ваш ID: <code id="myPeerId">нет</code>
-      <button class="secondary" onclick="copyId()">Копировать</button>
     </p>
     <div class="mp-box">
       <b>Имя комнаты для игры с другом:</b><br>
@@ -369,8 +370,9 @@
     if (player.invuln > 0) player.invuln--;
     if (spawnTimer === 1 && Math.random() < 0.0012) wave++;
 
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'pos', x: player.x, y: player.y }));
+    // ОТПРАВКА ПОЗИЦИИ В МУЛЬТИПЛЕЕР
+    if (window.room && window.drone && window.drone.connection.readyState === 'connected') {
+      window.room.publish({ type: 'pos', x: player.x, y: player.y });
     }
   }
 
@@ -428,60 +430,65 @@
     ctx.fillText(`Счёт: ${score}`, W/2, H/2 + 10);
   }
 
-  // --- МУЛЬТИПЛЕЕР (WebSocket через публичный сервер) ---
-  let ws = null;
+  // --- МУЛЬТИПЛЕЕР (Scaledrone) ---
+  // ВАЖНО: Замени 'ВСТАВЬ_СЮДА_СВОЙ_CHANNEL_ID' на твой ключ из Scaledrone!
+  const CHANNEL_ID = 'ВСТАВЬ_СЮДА_СВОЙ_CHANNEL_ID'; 
+  
+  window.drone = null;
+  window.room = null;
   let myPeerId = null;
 
   window.joinGameRoom = () => {
     const roomName = document.getElementById('roomNameInput').value.trim();
     if (!roomName) { alert('Введите имя комнаты'); return; }
+    if (CHANNEL_ID === 'ВСТАВЬ_СЮДА_СВОЙ_CHANNEL_ID') {
+      alert('Вы не вставили ваш Channel ID из Scaledrone в код!');
+      return;
+    }
 
-    // Используем публичный тестовый сервер (wss://)
-    // Важно: для реальной игры нужен свой сервер, но для теста сойдет и этот.
-    const wsUrl = `wss://ws.postman-echo.com/raw`;
-    
-    document.getElementById('mpMsg').textContent = 'Подключение к серверу...';
+    document.getElementById('mpMsg').textContent = 'Подключение...';
     document.getElementById('mpMsg').style.color = '#d29922';
 
-    ws = new WebSocket(wsUrl);
+    window.drone = new Scaledrone(CHANNEL_ID);
+    
+    window.drone.on('open', error => {
+      if (error) {
+        document.getElementById('mpMsg').textContent = 'Ошибка подключения: ' + error.message;
+        document.getElementById('mpMsg').style.color = '#f85149';
+        return;
+      }
+      window.room = window.drone.subscribe(roomName);
+      window.room.on('open', error => {
+        if (error) {
+          document.getElementById('mpMsg').textContent = 'Ошибка комнаты: ' + error.message;
+          return;
+        }
+        myPeerId = window.drone.clientId;
+        document.getElementById('myPeerId').textContent = myPeerId;
+        setStatus('В комнате', true);
+        document.getElementById('mpMsg').style.color = '#3fb950';
+        document.getElementById('mpMsg').textContent = 'Вы в комнате! Ждем друга...';
+      });
 
-    ws.onopen = () => {
-      myPeerId = Math.random().toString(36).substring(2, 8).toUpperCase();
-      document.getElementById('myPeerId').textContent = myPeerId;
-      setStatus('В комнате', true);
-      document.getElementById('mpMsg').style.color = '#3fb950';
-      document.getElementById('mpMsg').textContent = 'Вы в комнате! Ждем друга...';
-      
-      // Отправляем сообщение о входе (эмуляция)
-      ws.send(JSON.stringify({ type: 'join', room: roomName, id: myPeerId }));
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
+      window.room.on('data', data => {
         if (data.type === 'pos') {
           window.remotePlayerWS = { x: data.x, y: data.y };
         }
-      } catch (e) {}
-    };
-
-    ws.onclose = () => {
-      document.getElementById('mpMsg').textContent = 'Соединение разорвано.';
-      document.getElementById('mpMsg').style.color = '#f85149';
-      setStatus('Одиночная', false);
-      ws = null;
-    };
+      });
+    });
   };
 
   window.leaveGameRoom = () => {
-    if (ws) { ws.close(); ws = null; }
+    if (window.drone) {
+      window.drone.disconnect();
+      window.drone = null;
+      window.room = null;
+    }
     window.remotePlayerWS = null;
     setStatus('Одиночная', false);
     document.getElementById('myPeerId').textContent = 'нет';
     document.getElementById('mpMsg').textContent = 'Вы вышли из комнаты.';
   };
-
-  window.copyId = () => { if (myPeerId) navigator.clipboard.writeText(myPeerId); };
 
   function setStatus(text, on) {
     const el = document.getElementById('mpStatus');
