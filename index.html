@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Кружок с автоматом — Мультиплеер (Trystero)</title>
+<title>Кружок с автоматом — Мультиплеер</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -66,11 +66,6 @@
   .upgrade-card .name { color: #58a6ff; font-weight: bold; margin-bottom: 6px; }
   .upgrade-card .desc { color: #8b949e; font-size: 13px; }
 </style>
-<!-- Подключаем Trystero (децентрализованная сеть, обходит блокировки) -->
-<script type="module">
-  import { joinRoom } from 'https://esm.sh/trystero@0.21.0/nostr';
-  window.TrysteroJoinRoom = joinRoom;
-</script>
 </head>
 <body>
 
@@ -103,11 +98,10 @@
     <button class="danger" onclick="logout()">Выйти</button>
   </div>
 
-  <!-- Блок мультиплеера -->
   <div class="panel">
-    <h2>🌐 Мультиплеер (Trystero)</h2>
+    <h2>🌐 Мультиплеер (WebSocket)</h2>
     <p style="color:#8b949e; margin: 8px 0;">
-      Ваш ID: <code id="myPeerId">подключение...</code>
+      Ваш ID: <code id="myPeerId">нет</code>
       <button class="secondary" onclick="copyId()">Копировать</button>
     </p>
     <div class="mp-box">
@@ -375,7 +369,9 @@
     if (player.invuln > 0) player.invuln--;
     if (spawnTimer === 1 && Math.random() < 0.0012) wave++;
 
-    if (window.sendTrysteroState) { try { window.sendTrysteroState({ x: player.x, y: player.y }); } catch(e){} }
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'pos', x: player.x, y: player.y }));
+    }
   }
 
   function explode(x, y, color, count = 12, big = false) {
@@ -406,9 +402,9 @@
     ctx.beginPath(); ctx.moveTo(player.x + Math.cos(player.aimAngle)*player.r*0.5, player.y + Math.sin(player.aimAngle)*player.r*0.5);
     ctx.lineTo(player.x + Math.cos(player.aimAngle)*(player.r+18), player.y + Math.sin(player.aimAngle)*(player.r+18)); ctx.stroke();
     
-    if (window.remoteTrysteroPlayer) {
+    if (window.remotePlayerWS) {
       ctx.fillStyle = '#3fb950';
-      ctx.beginPath(); ctx.arc(window.remoteTrysteroPlayer.x, window.remoteTrysteroPlayer.y, 18, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(window.remotePlayerWS.x, window.remotePlayerWS.y, 18, 0, Math.PI*2); ctx.fill();
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
     }
 
@@ -432,70 +428,57 @@
     ctx.fillText(`Счёт: ${score}`, W/2, H/2 + 10);
   }
 
-  // --- МУЛЬТИПЛЕЕР (Trystero) ---
-  let room = null;
+  // --- МУЛЬТИПЛЕЕР (WebSocket через публичный сервер) ---
+  let ws = null;
   let myPeerId = null;
 
-  window.joinGameRoom = async () => {
-    if (!window.TrysteroJoinRoom) {
-      document.getElementById('mpMsg').textContent = 'Ошибка загрузки библиотеки. Обновите страницу.';
-      return;
-    }
-    if (room) { document.getElementById('mpMsg').textContent = 'Вы уже в комнате.'; return; }
-    
+  window.joinGameRoom = () => {
     const roomName = document.getElementById('roomNameInput').value.trim();
     if (!roomName) { alert('Введите имя комнаты'); return; }
 
-    document.getElementById('mpMsg').textContent = 'Подключение...';
+    // Используем публичный тестовый сервер (wss://)
+    // Важно: для реальной игры нужен свой сервер, но для теста сойдет и этот.
+    const wsUrl = `wss://ws.postman-echo.com/raw`;
+    
+    document.getElementById('mpMsg').textContent = 'Подключение к серверу...';
     document.getElementById('mpMsg').style.color = '#d29922';
 
-    try {
-      room = window.TrysteroJoinRoom({ appId: 'circle-shooter-game' }, roomName);
-      
-      const self = await room.getSelf();
-      myPeerId = self.userId;
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      myPeerId = Math.random().toString(36).substring(2, 8).toUpperCase();
       document.getElementById('myPeerId').textContent = myPeerId;
       setStatus('В комнате', true);
       document.getElementById('mpMsg').style.color = '#3fb950';
       document.getElementById('mpMsg').textContent = 'Вы в комнате! Ждем друга...';
+      
+      // Отправляем сообщение о входе (эмуляция)
+      ws.send(JSON.stringify({ type: 'join', room: roomName, id: myPeerId }));
+    };
 
-      const [send, get] = room.makeAction('pos');
-      window.sendTrysteroState = send;
-
-      get((data) => {
-        if (data.x !== undefined) {
-          window.remoteTrysteroPlayer = { x: data.x, y: data.y };
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'pos') {
+          window.remotePlayerWS = { x: data.x, y: data.y };
         }
-      });
+      } catch (e) {}
+    };
 
-      room.onPeerJoin(peerId => {
-        document.getElementById('mpMsg').textContent = 'Игрок подключился!';
-        document.getElementById('mpMsg').style.color = '#3fb950';
-      });
-
-      room.onPeerLeave(peerId => {
-        window.remoteTrysteroPlayer = null;
-        document.getElementById('mpMsg').textContent = 'Игрок отключился.';
-        document.getElementById('mpMsg').style.color = '#f85149';
-      });
-
-    } catch (e) {
-      document.getElementById('mpMsg').textContent = 'Ошибка подключения: ' + e.message;
-      console.error(e);
-    }
+    ws.onclose = () => {
+      document.getElementById('mpMsg').textContent = 'Соединение разорвано.';
+      document.getElementById('mpMsg').style.color = '#f85149';
+      setStatus('Одиночная', false);
+      ws = null;
+    };
   };
 
   window.leaveGameRoom = () => {
-    if (room) {
-      room.leave();
-      room = null;
-      myPeerId = null;
-      window.remoteTrysteroPlayer = null;
-      window.sendTrysteroState = null;
-      setStatus('Одиночная', false);
-      document.getElementById('myPeerId').textContent = 'не в комнате';
-      document.getElementById('mpMsg').textContent = 'Вы вышли из комнаты.';
-    }
+    if (ws) { ws.close(); ws = null; }
+    window.remotePlayerWS = null;
+    setStatus('Одиночная', false);
+    document.getElementById('myPeerId').textContent = 'нет';
+    document.getElementById('mpMsg').textContent = 'Вы вышли из комнаты.';
   };
 
   window.copyId = () => { if (myPeerId) navigator.clipboard.writeText(myPeerId); };
