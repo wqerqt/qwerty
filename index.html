@@ -432,11 +432,11 @@
 
   window.initPeer = () => {
     if (peer) return;
-    peer = new Peer(null, {
-  host: '0.peerjs.com',
+   peer = new Peer(null, {
+  host: 'xfenix.ru',
   secure: true,
   port: 443,
-  debug: 2
+  path: '/'
 });
     peer.on('open', id => {
       myPeerId = id;
