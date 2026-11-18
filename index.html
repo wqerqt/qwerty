@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Танчики PvP — Мультиплеер</title>
+<title>Крестики-нолики — Мультиплеер</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -15,7 +15,7 @@
   .panel {
     background: #161b22; border: 1px solid #30363d;
     border-radius: 10px; padding: 20px; margin-bottom: 15px;
-    width: 100%; max-width: 820px;
+    width: 100%; max-width: 500px;
   }
   input {
     padding: 8px 12px; margin: 5px; border-radius: 6px;
@@ -28,42 +28,42 @@
     cursor: pointer; font-weight: bold;
   }
   button:hover { background: #2ea043; }
-  button.danger { background: #da3633; }
-  button.danger:hover { background: #f85149; }
   button.secondary { background: #30363d; }
   button.secondary:hover { background: #484f58; }
-  canvas {
-    border: 2px solid #30363d; border-radius: 10px;
-    background: #010409; display: block; cursor: crosshair;
-  }
-  table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-  th, td { padding: 8px; border-bottom: 1px solid #30363d; text-align: left; }
-  th { color: #58a6ff; }
   .hidden { display: none !important; }
-  .hud {
-    display: flex; justify-content: space-between;
-    width: 800px; max-width: 100%; margin-bottom: 10px;
-    font-size: 16px; flex-wrap: wrap; gap: 10px; align-items: center;
+  #board {
+    display: grid;
+    grid-template-columns: repeat(3, 100px);
+    grid-template-rows: repeat(3, 100px);
+    gap: 5px;
+    background: #30363d;
+    padding: 5px;
+    border-radius: 10px;
   }
-  .hud span { color: #f0883e; font-weight: bold; }
-  #status { color: #8b949e; margin: 10px 0; text-align: center; min-height: 24px; }
-  .row { display: flex; flex-wrap: wrap; align-items: center; }
+  .cell {
+    background: #161b22;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 60px; font-weight: bold;
+    cursor: pointer;
+    border-radius: 5px;
+    transition: background 0.2s;
+  }
+  .cell:hover { background: #21262d; }
+  .cell.x { color: #58a6ff; }
+  .cell.o { color: #f85149; }
+  #status { color: #8b949e; margin: 15px 0; text-align: center; min-height: 24px; font-size: 18px; }
   .mp-box { background: #0d1117; border: 1px dashed #30363d; border-radius: 8px; padding: 15px; margin-top: 10px; }
   code { background: #0d1117; padding: 2px 6px; border-radius: 4px; color: #79c0ff; }
-  .tag { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 13px; }
-  .tag.on { background: #238636; color: white; }
-  .tag.off { background: #484f58; color: #c9d1d9; }
 </style>
-<!-- Библиотека PeerJS -->
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
 
-<h1>💥 Танчики PvP 💥</h1>
+<h1>⭕ Крестики-нолики ❌</h1>
 
 <div id="authScreen" class="panel">
   <h2>Вход / Регистрация</h2>
-  <div class="row">
+  <div style="display:flex; flex-wrap:wrap;">
     <input id="username" placeholder="Логин" autocomplete="off" />
     <input id="password" type="password" placeholder="Пароль" />
   </div>
@@ -72,313 +72,138 @@
   <p id="authMsg" style="color:#f85149; margin-top:10px;"></p>
 </div>
 
-<div id="gameScreen" class="hidden" style="display:flex; flex-direction:column; align-items:center; width:100%;">
-  <div class="hud">
-    <div>Ваши очки: <span id="myScore">0</span></div>
-    <div>HP: <span id="myHP">100</span></div>
-    <div>Статус: <span id="mpStatus" class="tag off">Одиночная</span></div>
-  </div>
-  <canvas id="game" width="800" height="600"></canvas>
-  <p id="status">WASD — движение, Мышь — поворот башни, ЛКМ — выстрел.</p>
+<div id="gameScreen" class="hidden" style="display:flex; flex-direction:column; align-items:center;">
+  <p id="status">Соединение...</p>
+  <div id="board"></div>
   
-  <div class="row">
-    <button onclick="startGame()">Начать заново</button>
-    <button class="danger" onclick="logout()">Выйти</button>
-  </div>
-
-  <div class="panel">
+  <div class="panel" style="margin-top:20px;">
     <h2>🌐 Мультиплеер</h2>
     <p style="color:#8b949e; margin: 8px 0;">
       Ваш ID: <code id="myPeerId">подключение...</code>
       <button class="secondary" onclick="copyId()">Копировать</button>
     </p>
     <div class="mp-box">
-      <b>Подключиться к другу:</b><br>
-      <input id="friendId" placeholder="ID друга" />
+      <b>ID друга:</b><br>
+      <input id="friendId" placeholder="Вставьте ID друга" />
       <button onclick="connectToFriend()">Подключиться</button>
-      <button class="secondary" onclick="disconnectPeer()">Отключиться</button>
     </div>
     <p id="mpMsg" style="margin-top:10px; color:#8b949e;"></p>
   </div>
-
-  <div class="panel">
-    <h2>🏆 Таблица очков (Firebase)</h2>
-    <table id="leaderboard"><thead><tr><th>Место</th><th>Игрок</th><th>Очки</th></tr></thead><tbody></tbody></table>
-  </div>
+  
+  <button class="secondary" onclick="resetGame()">Начать заново</button>
 </div>
 
 <script>
-  // --- FIREBASE ---
-  let db, currentUser = null;
+  // --- БАЗА ДАННЫХ (localStorage) ---
+  const DB = {
+    get(key) { return JSON.parse(localStorage.getItem(key) || 'null'); },
+    set(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+  };
+  const getUsers = () => DB.get('users') || {};
+  const saveUsers = u => DB.set('users', u);
   
-  async function initFirebase() {
-    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js");
-    const { getFirestore, collection, getDocs, setDoc, doc, query, orderBy, limit } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js");
-
-    const firebaseConfig = {
-      apiKey: "AIzaSyB_8U1TVXhm_josJPrGzc8g1XPKwkrCQVM",
-      authDomain: "game-6dc1e.firebaseapp.com",
-      projectId: "game-6dc1e",
-      storageBucket: "game-6dc1e.firebasestorage.app",
-      messagingSenderId: "430588155366",
-      appId: "1:430588155366:web:fc79d342feadefa9e49f227",
-      measurementId: "G-NQH7JR6LT1"
-    };
-
-    const app = initializeApp(firebaseConfig);
-    db = getFirestore(app);
-    window._fb = { collection, getDocs, setDoc, doc, query, orderBy, limit };
-  }
-
-  window.auth = async (mode) => {
-    if (!db) { await initFirebase(); }
+  let currentUser = null;
+  
+  window.auth = (mode) => {
     const username = document.getElementById('username').value.trim();
     const password = document.getElementById('password').value.trim();
     const msg = document.getElementById('authMsg');
     msg.textContent = '';
-
+    
     if (!username || !password) { msg.textContent = 'Заполните поля'; return; }
     const hash = btoa(password);
-
-    try {
-      const { collection, getDocs, setDoc, doc, query } = window._fb;
-      const userDoc = doc(db, "users", username);
-      const userSnap = await getDocs(query(collection(db, "users")));
-      let exists = false;
-      userSnap.forEach(d => { if (d.id === username) exists = true; });
-
-      if (mode === 'register') {
-        if (exists) { msg.textContent = 'Пользователь уже существует'; return; }
-        await setDoc(userDoc, { password: hash });
-        msg.style.color = '#3fb950'; msg.textContent = 'Успешно! Войдите.';
-      } else {
-        if (!exists) { msg.textContent = 'Неверный логин или пароль'; return; }
-        const userData = (await getDocs(query(collection(db, "users")))).docs.find(d => d.id === username).data();
-        if (userData.password !== hash) { msg.textContent = 'Неверный логин или пароль'; return; }
-        
-        currentUser = username;
-        window.showGame();
-      }
-    } catch (e) {
-      msg.textContent = 'Ошибка БД: ' + e.message;
+    const users = getUsers();
+    
+    if (mode === 'register') {
+      if (users[username]) { msg.textContent = 'Пользователь уже существует'; return; }
+      users[username] = hash;
+      saveUsers(users);
+      msg.style.color = '#3fb950'; msg.textContent = 'Успешно! Войдите.';
+    } else {
+      if (!users[username] || users[username] !== hash) { msg.textContent = 'Неверный логин или пароль'; return; }
+      currentUser = username;
+      window.showGame();
     }
   };
-
+  
   window.showGame = () => {
     document.getElementById('authScreen').classList.add('hidden');
     document.getElementById('gameScreen').classList.remove('hidden');
     initPeer();
-    window.renderLeaderboard();
-    window.startGame();
+    window.resetGame();
   };
-
+  
   window.logout = () => {
     currentUser = null;
     document.getElementById('gameScreen').classList.add('hidden');
     document.getElementById('authScreen').classList.remove('hidden');
   };
 
-  window.addScore = async (name, score) => {
-    try {
-      const { collection, getDocs, setDoc, doc, query } = window._fb;
-      const scoreDoc = doc(db, "scores", name);
-      const snap = await getDocs(query(collection(db, "scores")));
-      let existingScore = 0;
-      snap.forEach(d => { if (d.id === name) existingScore = d.data().score; });
-      if (score > existingScore) { await setDoc(scoreDoc, { name, score }); }
-    } catch(e) { console.log(e); }
+  // --- ИГРА (Крестики-нолики) ---
+  let board = ['', '', '', '', '', '', '', '', ''];
+  let mySymbol = 'X';
+  let isMyTurn = false;
+  let gameActive = false;
+
+  window.resetGame = () => {
+    board = ['', '', '', '', '', '', '', '', ''];
+    gameActive = true;
+    isMyTurn = (mySymbol === 'X'); // X ходит первым
+    renderBoard();
+    updateStatus();
   };
 
-  window.renderLeaderboard = async () => {
-    try {
-      const { collection, getDocs, query, orderBy, limit } = window._fb;
-      const q = query(collection(db, "scores"), orderBy("score", "desc"), limit(10));
-      const querySnapshot = await getDocs(q);
-      const tbody = document.querySelector('#leaderboard tbody');
-      tbody.innerHTML = '';
-      let i = 1;
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        tbody.innerHTML += `<tr><td>${i}</td><td>${data.name}</td><td>${data.score}</td></tr>`;
-        i++;
-      });
-      if (i === 1) tbody.innerHTML = '<tr><td colspan="3">Пока нет результатов</td></tr>';
-    } catch (e) { console.log(e); }
-  };
+  function renderBoard() {
+    const boardEl = document.getElementById('board');
+    boardEl.innerHTML = '';
+    for (let i = 0; i < 9; i++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      if (board[i] === 'X') cell.classList.add('x');
+      if (board[i] === 'O') cell.classList.add('o');
+      cell.textContent = board[i];
+      cell.onclick = () => makeMove(i);
+      boardEl.appendChild(cell);
+    }
+  }
 
-  // --- ИГРА ---
-  const canvas = document.getElementById('game');
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  
-  let player, remotePlayer, bullets, walls;
-  let running, animId, score = 0;
-  let keys = {}, mouse = { x: W/2, y: H/2, down: false };
-  let lastShot = 0;
+  function updateStatus() {
+    const statusEl = document.getElementById('status');
+    if (!gameActive) return;
+    statusEl.textContent = isMyTurn ? 'Ваш ход (' + mySymbol + ')' : 'Ход противника...';
+  }
 
-  document.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
-  document.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
-  canvas.addEventListener('mousemove', e => {
-    const r = canvas.getBoundingClientRect();
-    mouse.x = e.clientX - r.left; mouse.y = e.clientY - r.top;
-  });
-  canvas.addEventListener('mousedown', () => mouse.down = true);
-  canvas.addEventListener('mouseup', () => mouse.down = false);
+  function makeMove(index) {
+    if (!gameActive || !isMyTurn || board[index] !== '') return;
+    
+    board[index] = mySymbol;
+    isMyTurn = false;
+    renderBoard();
+    updateStatus();
+    
+    if (checkWin(mySymbol)) {
+      gameActive = false;
+      document.getElementById('status').textContent = 'Вы победили! 🎉';
+      return;
+    }
+    if (board.every(c => c !== '')) {
+      gameActive = false;
+      document.getElementById('status').textContent = 'Ничья!';
+      return;
+    }
+    
+    if (conn && conn.open) {
+      conn.send({ type: 'move', index, symbol: mySymbol });
+    }
+  }
 
-  window.startGame = () => {
-    player = { x: 100, y: H/2, r: 20, hp: 100, angle: 0, color: '#58a6ff' };
-    remotePlayer = null;
-    bullets = [];
-    walls = [
-      {x: 300, y: 150, w: 200, h: 20},
-      {x: 300, y: H-170, w: 200, h: 20},
-      {x: 500, y: 250, w: 20, h: 100}
+  function checkWin(symbol) {
+    const wins = [
+      [0,1,2], [3,4,5], [6,7,8],
+      [0,3,6], [1,4,7], [2,5,8],
+      [0,4,8], [2,4,6]
     ];
-    score = 0; running = true;
-    document.getElementById('status').textContent = 'WASD — движение, Мышь — прицел, ЛКМ — выстрел.';
-    updateHUD();
-    cancelAnimationFrame(animId);
-    loop();
-  };
-
-  function updateHUD() {
-    document.getElementById('myScore').textContent = score;
-    document.getElementById('myHP').textContent = Math.max(0, player.hp);
-  }
-
-  function loop() {
-    if (!running) return;
-    update();
-    draw();
-    animId = requestAnimationFrame(loop);
-  }
-
-  function update() {
-    // Движение игрока
-    let dx = 0, dy = 0;
-    if (keys['w'] || keys['ц']) dy -= 1;
-    if (keys['s'] || keys['ы']) dy += 1;
-    if (keys['a'] || keys['ф']) dx -= 1;
-    if (keys['d'] || keys['в']) dx += 1;
-    
-    if (dx && dy) { dx *= 0.707; dy *= 0.707; }
-    let newX = player.x + dx * 3;
-    let newY = player.y + dy * 3;
-
-    // Проверка коллизий со стенами (упрощенно)
-    let collide = false;
-    for (let w of walls) {
-      if (newX + player.r > w.x && newX - player.r < w.x + w.w &&
-          newY + player.r > w.y && newY - player.r < w.y + w.h) {
-        collide = true; break;
-      }
-    }
-    if (!collide) { player.x = newX; player.y = newY; }
-    
-    // Границы
-    player.x = Math.max(player.r, Math.min(W - player.r, player.x));
-    player.y = Math.max(player.r, Math.min(H - player.r, player.y));
-
-    // Прицел
-    player.angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
-
-    // Стрельба
-    if (mouse.down && Date.now() - lastShot > 400) {
-      bullets.push({
-        x: player.x + Math.cos(player.angle) * (player.r + 5),
-        y: player.y + Math.sin(player.angle) * (player.r + 5),
-        vx: Math.cos(player.angle) * 8,
-        vy: Math.sin(player.angle) * 8,
-        owner: 'me', life: 100
-      });
-      lastShot = Date.now();
-      if (window.sendTankState) window.sendTankState({ type: 'shoot', angle: player.angle, x: player.x, y: player.y });
-    }
-
-    // Пули
-    bullets = bullets.filter(b => {
-      b.x += b.vx; b.y += b.vy; b.life--;
-      
-      // В стены
-      for (let w of walls) {
-        if (b.x > w.x && b.x < w.x + w.w && b.y > w.y && b.y < w.y + w.h) return false;
-      }
-      
-      // В противника
-      if (b.owner === 'me' && remotePlayer) {
-        if (Math.hypot(b.x - remotePlayer.x, b.y - remotePlayer.y) < 20) {
-          if (window.sendTankState) window.sendTankState({ type: 'hit' });
-          return false;
-        }
-      }
-      // В меня (если пуля от другого игрока)
-      if (b.owner === 'enemy') {
-        if (Math.hypot(b.x - player.x, b.y - player.y) < 20) {
-          player.hp -= 10;
-          updateHUD();
-          if (player.hp <= 0) gameOver();
-          return false;
-        }
-      }
-
-      return b.life > 0 && b.x > 0 && b.x < W && b.y > 0 && b.y < H;
-    });
-
-    // Синхронизация позиции
-    if (window.sendTankState) window.sendTankState({ type: 'pos', x: player.x, y: player.y, angle: player.angle });
-  }
-
-  function draw() {
-    ctx.clearRect(0, 0, W, H);
-    
-    // Сетка
-    ctx.strokeStyle = '#0d1a2b'; ctx.lineWidth = 1;
-    for (let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-    for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
-
-    // Стены
-    ctx.fillStyle = '#30363d';
-    for (let w of walls) ctx.fillRect(w.x, w.y, w.w, w.h);
-
-    // Пули
-    for (let b of bullets) {
-      ctx.fillStyle = b.owner === 'me' ? '#f0e130' : '#ff7b72';
-      ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI*2); ctx.fill();
-    }
-
-    // Второй игрок
-    if (remotePlayer) {
-      ctx.save();
-      ctx.translate(remotePlayer.x, remotePlayer.y);
-      ctx.rotate(remotePlayer.angle);
-      ctx.fillStyle = '#f85149';
-      ctx.fillRect(-15, -15, 30, 30);
-      ctx.fillStyle = '#30363d';
-      ctx.fillRect(0, -4, 25, 8);
-      ctx.restore();
-    }
-
-    // Мой игрок
-    ctx.save();
-    ctx.translate(player.x, player.y);
-    ctx.rotate(player.angle);
-    ctx.fillStyle = player.color;
-    ctx.fillRect(-15, -15, 30, 30);
-    ctx.fillStyle = '#c9d1d9';
-    ctx.fillRect(0, -4, 25, 8);
-    ctx.restore();
-  }
-
-  function gameOver() {
-    running = false;
-    if (currentUser) {
-      window.addScore(currentUser, score);
-      setTimeout(() => window.renderLeaderboard(), 1000);
-    }
-    document.getElementById('status').textContent = `Вы уничтожены! Ваш счёт: ${score}`;
-    ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = '#f85149'; ctx.font = 'bold 48px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('GAME OVER', W/2, H/2);
+    return wins.some(line => line.every(i => board[i] === symbol));
   }
 
   // --- МУЛЬТИПЛЕЕР (PeerJS) ---
@@ -386,6 +211,8 @@
 
   window.initPeer = () => {
     if (peer) return;
+    
+    // Подключаемся к рабочему облачному серверу
     peer = new Peer(null, {
       host: '0.peerjs.com',
       secure: true,
@@ -400,8 +227,9 @@
     peer.on('connection', c => {
       if (conn) { c.close(); return; }
       conn = c;
+      mySymbol = 'O'; // Хост играет за O (второй)
       setupConn();
-      setStatus('Мультиплеер', true);
+      setStatus('Подключен', true);
       document.getElementById('mpMsg').textContent = 'К вам подключились!';
     });
   };
@@ -411,57 +239,49 @@
     if (!friendId) { alert('Введите ID друга'); return; }
     if (conn) { alert('Уже подключено'); return; }
     if (!peer) { alert('Сначала войдите'); return; }
+    
     conn = peer.connect(friendId);
+    mySymbol = 'X'; // Тот, кто подключается — X (первый)
     setupConn();
   };
 
   function setupConn() {
     conn.on('open', () => {
-      setStatus('Мультиплеер', true);
+      setStatus('Подключен', true);
       document.getElementById('mpMsg').style.color = '#3fb950';
       document.getElementById('mpMsg').textContent = 'Соединение установлено!';
-      window.sendTankState = (data) => { if (conn && conn.open) conn.send(data); };
+      window.resetGame();
     });
     
     conn.on('data', data => {
-      if (data.type === 'pos') {
-        if (!remotePlayer) remotePlayer = { x: data.x, y: data.y, angle: data.angle, hp: 100 };
-        else { remotePlayer.x = data.x; remotePlayer.y = data.y; remotePlayer.angle = data.angle; }
-      } else if (data.type === 'shoot') {
-        bullets.push({
-          x: data.x + Math.cos(data.angle) * 25,
-          y: data.y + Math.sin(data.angle) * 25,
-          vx: Math.cos(data.angle) * 8,
-          vy: Math.sin(data.angle) * 8,
-          owner: 'enemy', life: 100
-        });
-      } else if (data.type === 'hit') {
-        score += 100;
-        updateHUD();
-        if (remotePlayer) remotePlayer = null;
+      if (data.type === 'move') {
+        board[data.index] = data.symbol;
+        isMyTurn = true;
+        renderBoard();
+        updateStatus();
+        
+        if (checkWin(data.symbol)) {
+          gameActive = false;
+          document.getElementById('status').textContent = 'Вы проиграли 😢';
+          return;
+        }
+        if (board.every(c => c !== '')) {
+          gameActive = false;
+          document.getElementById('status').textContent = 'Ничья!';
+        }
       }
     });
 
     conn.on('close', () => {
       conn = null;
-      window.sendTankState = null;
-      remotePlayer = null;
-      setStatus('Одиночная', false);
+      setStatus('Отключен', false);
       document.getElementById('mpMsg').textContent = 'Соединение разорвано';
     });
   }
 
-  window.disconnectPeer = () => {
-    if (conn) { conn.close(); conn = null; }
-    window.sendTankState = null;
-    remotePlayer = null;
-    setStatus('Одиночная', false);
-    document.getElementById('mpMsg').textContent = '';
-  };
-
   function setStatus(text, on) {
-    const el = document.getElementById('mpStatus');
-    if (el) { el.textContent = text; el.className = 'tag ' + (on ? 'on' : 'off'); }
+    const statusEl = document.getElementById('status');
+    if (statusEl) statusEl.textContent = text;
   }
 
   window.copyId = () => {
@@ -469,7 +289,11 @@
     if (id && id !== 'подключение...') navigator.clipboard.writeText(id);
   };
 
-  initFirebase();
+  // Запуск
+  window.addEventListener('load', () => {
+    const saved = DB.get('currentUser');
+    if (saved) { currentUser = saved; window.showGame(); }
+  });
 </script>
 </body>
 </html>
