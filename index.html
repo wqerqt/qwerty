@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Крестики-нолики — Онлайн</title>
+<title>Крестики-нолики — Мультиплеер</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -55,6 +55,7 @@
   .mp-box { background: #0d1117; border: 1px dashed #30363d; border-radius: 8px; padding: 15px; margin-top: 10px; }
   code { background: #0d1117; padding: 2px 6px; border-radius: 4px; color: #79c0ff; }
 </style>
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
 
@@ -72,16 +73,19 @@
 </div>
 
 <div id="gameScreen" class="hidden" style="display:flex; flex-direction:column; align-items:center;">
-  <p id="status">Подключение...</p>
+  <p id="status">Соединение...</p>
   <div id="board"></div>
   
   <div class="panel" style="margin-top:20px;">
-    <h2>🌐 Онлайн</h2>
+    <h2>🌐 Мультиплеер (Прямое соединение)</h2>
+    <p style="color:#8b949e; margin: 8px 0;">
+      Ваш ID: <code id="myPeerId">подключение...</code>
+      <button class="secondary" onclick="copyId()">Копировать</button>
+    </p>
     <div class="mp-box">
-      <b>Имя комнаты:</b><br>
-      <input id="roomName" placeholder="Введите имя комнаты" value="room123" />
-      <button onclick="joinRoom()">Войти в комнату</button>
-      <button class="secondary" onclick="leaveRoom()">Выйти</button>
+      <b>ID друга:</b><br>
+      <input id="friendId" placeholder="Вставьте ID друга" />
+      <button onclick="connectToFriend()">Подключиться</button>
     </div>
     <p id="mpMsg" style="margin-top:10px; color:#8b949e;"></p>
   </div>
@@ -125,6 +129,7 @@
   window.showGame = () => {
     document.getElementById('authScreen').classList.add('hidden');
     document.getElementById('gameScreen').classList.remove('hidden');
+    initPeer();
     window.resetGame();
   };
   
@@ -187,8 +192,8 @@
       return;
     }
     
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'move', index, symbol: mySymbol, room: currentRoom }));
+    if (conn && conn.open) {
+      conn.send({ type: 'move', index, symbol: mySymbol });
     }
   }
 
@@ -201,58 +206,73 @@
     return wins.some(line => line.every(i => board[i] === symbol));
   }
 
-  // --- ОНЛАЙН (WebSocket) ---
-  let ws = null;
-  let currentRoom = null;
+  // --- МУЛЬТИПЛЕЕР (PeerJS) ---
+  let peer = null, conn = null;
 
-  window.joinRoom = () => {
-    const room = document.getElementById('roomName').value.trim();
-    if (!room) { alert('Введите имя комнаты'); return; }
+  window.initPeer = () => {
+    if (peer) return;
+    peer = new Peer();
     
-    currentRoom = room;
-    document.getElementById('mpMsg').textContent = 'Подключение...';
+    peer.on('open', id => {
+      document.getElementById('myPeerId').textContent = id;
+    });
     
-    // Публичный WebSocket сервер (работает как эхо, но мы используем его для синхронизации)
-    ws = new WebSocket('wss://ws.vi-server.org/');
-    
-    ws.onopen = () => {
+    peer.on('connection', c => {
+      if (conn) { c.close(); return; }
+      conn = c;
+      mySymbol = 'O'; // Хост играет за O
+      setupConn();
       document.getElementById('mpMsg').style.color = '#3fb950';
-      document.getElementById('mpMsg').textContent = 'Вы в комнате! Ждем друга...';
-      mySymbol = 'X';
-      window.resetGame();
-    };
-    
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'move' && data.room === currentRoom) {
-          board[data.index] = data.symbol;
-          isMyTurn = true;
-          renderBoard();
-          updateStatus();
-          
-          if (checkWin(data.symbol)) {
-            gameActive = false;
-            document.getElementById('status').textContent = 'Вы проиграли 😢';
-          } else if (board.every(c => c !== '')) {
-            gameActive = false;
-            document.getElementById('status').textContent = 'Ничья!';
-          }
-        }
-      } catch (e) {}
-    };
-    
-    ws.onclose = () => {
-      document.getElementById('mpMsg').textContent = 'Соединение разорвано.';
-      document.getElementById('mpMsg').style.color = '#f85149';
-      ws = null;
-    };
+      document.getElementById('mpMsg').textContent = 'К вам подключились!';
+    });
   };
 
-  window.leaveRoom = () => {
-    if (ws) { ws.close(); ws = null; }
-    currentRoom = null;
-    document.getElementById('mpMsg').textContent = 'Вы вышли из комнаты.';
+  window.connectToFriend = () => {
+    const friendId = document.getElementById('friendId').value.trim();
+    if (!friendId) { alert('Введите ID друга'); return; }
+    if (conn) { alert('Уже подключено'); return; }
+    if (!peer) { alert('Сначала войдите'); return; }
+    
+    conn = peer.connect(friendId);
+    mySymbol = 'X'; // Тот, кто подключается — X
+    setupConn();
+  };
+
+  function setupConn() {
+    conn.on('open', () => {
+      document.getElementById('mpMsg').style.color = '#3fb950';
+      document.getElementById('mpMsg').textContent = 'Соединение установлено!';
+      window.resetGame();
+    });
+    
+    conn.on('data', data => {
+      if (data.type === 'move') {
+        board[data.index] = data.symbol;
+        isMyTurn = true;
+        renderBoard();
+        updateStatus();
+        
+        if (checkWin(data.symbol)) {
+          gameActive = false;
+          document.getElementById('status').textContent = 'Вы проиграли 😢';
+          return;
+        }
+        if (board.every(c => c !== '')) {
+          gameActive = false;
+          document.getElementById('status').textContent = 'Ничья!';
+        }
+      }
+    });
+
+    conn.on('close', () => {
+      conn = null;
+      document.getElementById('mpMsg').textContent = 'Соединение разорвано';
+    });
+  }
+
+  window.copyId = () => {
+    const id = document.getElementById('myPeerId').textContent;
+    if (id && id !== 'подключение...') navigator.clipboard.writeText(id);
   };
 
   // Запуск
