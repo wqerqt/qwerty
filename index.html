@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Танчики PvP — Мультиплеер</title>
+<title>Морской бой — Мультиплеер</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -32,10 +32,6 @@
   button.danger:hover { background: #f85149; }
   button.secondary { background: #30363d; }
   button.secondary:hover { background: #484f58; }
-  canvas {
-    border: 2px solid #30363d; border-radius: 10px;
-    background: #010409; display: block; cursor: crosshair;
-  }
   .hidden { display: none !important; }
   .hud {
     display: flex; justify-content: space-between;
@@ -43,20 +39,48 @@
     font-size: 16px; flex-wrap: wrap; gap: 10px; align-items: center;
   }
   .hud span { color: #f0883e; font-weight: bold; }
-  #status { color: #8b949e; margin: 10px 0; text-align: center; min-height: 24px; }
+  #status { color: #8b949e; margin: 10px 0; text-align: center; min-height: 24px; font-size: 18px;}
   .row { display: flex; flex-wrap: wrap; align-items: center; }
   .mp-box { background: #0d1117; border: 1px dashed #30363d; border-radius: 8px; padding: 15px; margin-top: 10px; }
   code { background: #0d1117; padding: 2px 6px; border-radius: 4px; color: #79c0ff; }
   .tag { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 13px; }
   .tag.on { background: #238636; color: white; }
   .tag.off { background: #484f58; color: #c9d1d9; }
+  
+  /* Поля для морского боя */
+  .boards { display: flex; gap: 40px; margin-top: 20px; }
+  .board-container { text-align: center; }
+  .board-container h3 { margin-bottom: 10px; color: #58a6ff; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(10, 30px);
+    grid-template-rows: repeat(10, 30px);
+    gap: 2px;
+    background: #30363d;
+    padding: 2px;
+    border-radius: 5px;
+  }
+  .cell {
+    background: #0d1117;
+    width: 30px; height: 30px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: background 0.1s;
+  }
+  .cell:hover { background: #21262d; }
+  .cell.ship { background: #58a6ff; }
+  .cell.hit { background: #f85149; }
+  .cell.miss { background: #484f58; }
+  .cell.preview { background: #3fb950; }
+  .cell.enemy-ship { background: #0d1117; } /* Скрываем вражеские корабли */
+  .cell.enemy-ship.hit { background: #f85149; }
 </style>
-<!-- Подключаем PeerJS -->
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
 
-<h1>💥 Танчики PvP 💥</h1>
+<h1>🚢 Морской бой 🌊</h1>
 
 <div id="authScreen" class="panel">
   <h2>Вход / Регистрация</h2>
@@ -71,14 +95,24 @@
 
 <div id="gameScreen" class="hidden" style="display:flex; flex-direction:column; align-items:center; width:100%;">
   <div class="hud">
-    <div>Ваши очки: <span id="myScore">0</span></div>
-    <div>Ваше HP: <span id="myHP">100</span></div>
+    <div>Ваш ход? <span id="turnIndicator">Нет</span></div>
     <div>Статус: <span id="mpStatus" class="tag off">Одиночная</span></div>
   </div>
-  <canvas id="game" width="800" height="600"></canvas>
-  <p id="status">WASD — движение, Мышь — прицел, ЛКМ — выстрел.</p>
   
-  <div class="row">
+  <p id="status">Расставьте корабли (клик по полю).</p>
+
+  <div class="boards">
+    <div class="board-container">
+      <h3>Ваше поле</h3>
+      <div id="myBoard" class="grid"></div>
+    </div>
+    <div class="board-container">
+      <h3>Поле противника</h3>
+      <div id="enemyBoard" class="grid"></div>
+    </div>
+  </div>
+  
+  <div class="row" style="margin-top:20px;">
     <button onclick="startGame()">Начать заново</button>
     <button class="danger" onclick="logout()">Выйти</button>
   </div>
@@ -144,190 +178,131 @@
     document.getElementById('authScreen').classList.remove('hidden');
   };
 
-  // --- ИГРА ---
-  const canvas = document.getElementById('game');
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  
-  let player, remotePlayer, bullets, walls;
-  let running, animId, score = 0;
-  let keys = {}, mouse = { x: W/2, y: H/2, down: false };
-  let lastShot = 0;
+  // --- ИГРА (Морской бой) ---
+  const BOARD_SIZE = 10;
+  let myShips = []; // Массив координат моих кораблей [x, y]
+  let enemyHits = []; // Попадания по врагу
+  let myHits = []; // Попадания по мне
+  let isMyTurn = false;
   let gameActive = false;
+  let isSetupPhase = true;
 
-  document.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
-  document.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
-  canvas.addEventListener('mousemove', e => {
-    const r = canvas.getBoundingClientRect();
-    mouse.x = e.clientX - r.left; mouse.y = e.clientY - r.top;
-  });
-  canvas.addEventListener('mousedown', () => mouse.down = true);
-  canvas.addEventListener('mouseup', () => mouse.down = false);
+  // Корабли: 1 (4-палубный), 2 (3-палубных), 3 (2-палубных), 4 (1-палубных)
+  const SHIP_SIZES = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1];
+  let currentShipIndex = 0;
+  let isVertical = false;
 
   window.startGame = () => {
-    player = { x: 100, y: H/2, r: 20, hp: 100, angle: 0, color: '#58a6ff' };
-    remotePlayer = null;
-    bullets = [];
-    walls = [
-      {x: 300, y: 150, w: 200, h: 20},
-      {x: 300, y: H-170, w: 200, h: 20},
-      {x: 500, y: 250, w: 20, h: 100}
-    ];
-    score = 0; running = true; gameActive = true;
-    document.getElementById('status').textContent = 'WASD — движение, Мышь — прицел, ЛКМ — выстрел.';
+    myShips = [];
+    enemyHits = [];
+    myHits = [];
+    isMyTurn = false;
+    gameActive = false;
+    isSetupPhase = true;
+    currentShipIndex = 0;
+    isVertical = false;
+    document.getElementById('status').textContent = 'Расставьте корабли (клик по полю). Нажмите "Пробел" для поворота.';
+    renderBoards();
     updateHUD();
-    cancelAnimationFrame(animId);
-    loop();
   };
 
+  document.addEventListener('keydown', e => {
+    if (isSetupPhase && e.code === 'Space') {
+      isVertical = !isVertical;
+      e.preventDefault();
+    }
+  });
+
+  function renderBoards() {
+    const myBoardEl = document.getElementById('myBoard');
+    const enemyBoardEl = document.getElementById('enemyBoard');
+    myBoardEl.innerHTML = '';
+    enemyBoardEl.innerHTML = '';
+
+    for (let y = 0; y < BOARD_SIZE; y++) {
+      for (let x = 0; x < BOARD_SIZE; x++) {
+        // Мое поле
+        const myCell = document.createElement('div');
+        myCell.className = 'cell';
+        if (myShips.some(s => s[0] === x && s[1] === y)) myCell.classList.add('ship');
+        if (myHits.some(h => h[0] === x && h[1] === y)) myCell.classList.add('hit');
+        myCell.onclick = () => handleMyBoardClick(x, y);
+        myBoardEl.appendChild(myCell);
+
+        // Поле врага
+        const enemyCell = document.createElement('div');
+        enemyCell.className = 'cell';
+        if (enemyHits.some(h => h[0] === x && h[1] === y)) enemyCell.classList.add('hit');
+        // Если мы стреляли мимо (нужно добавить массив промахов)
+        if (enemyMisses && enemyMisses.some(h => h[0] === x && h[1] === y)) enemyCell.classList.add('miss');
+        enemyCell.onclick = () => handleEnemyBoardClick(x, y);
+        enemyBoardEl.appendChild(enemyCell);
+      }
+    }
+  }
+
+  let enemyMisses = [];
+
+  function handleMyBoardClick(x, y) {
+    if (!isSetupPhase) return;
+    if (myShips.some(s => s[0] === x && s[1] === y)) return;
+    if (currentShipIndex >= SHIP_SIZES.length) return;
+
+    const size = SHIP_SIZES[currentShipIndex];
+    const newShipCoords = [];
+    let canPlace = true;
+
+    for (let i = 0; i < size; i++) {
+      const nx = isVertical ? x : x + i;
+      const ny = isVertical ? y + i : y;
+      
+      if (nx >= BOARD_SIZE || ny >= BOARD_SIZE) { canPlace = false; break; }
+      if (myShips.some(s => s[0] === nx && s[1] === ny)) { canPlace = false; break; }
+      // Проверка на соседние корабли (упрощенно, без касаний по диагонали)
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+            if (myShips.some(s => s[0] === nx + dx && s[1] === ny + dy)) { canPlace = false; }
+        }
+      }
+      newShipCoords.push([nx, ny]);
+    }
+
+    if (canPlace) {
+      myShips.push(...newShipCoords);
+      currentShipIndex++;
+      renderBoards();
+      
+      if (currentShipIndex >= SHIP_SIZES.length) {
+        isSetupPhase = false;
+        document.getElementById('status').textContent = 'Корабли расставлены! Ждем противника...';
+        if (conn && conn.open) conn.send({ type: 'ready' });
+      }
+    } else {
+      document.getElementById('status').textContent = 'Здесь нельзя ставить корабль!';
+    }
+  }
+
+  function handleEnemyBoardClick(x, y) {
+    if (isSetupPhase || !gameActive || !isMyTurn) return;
+    if (enemyHits.some(h => h[0] === x && h[1] === y)) return;
+    if (enemyMisses.some(h => h[0] === x && h[1] === y)) return;
+
+    if (conn && conn.open) {
+      conn.send({ type: 'shoot', x, y });
+      isMyTurn = false;
+      updateHUD();
+      document.getElementById('status').textContent = 'Выстрел... Ожидание...';
+    }
+  }
+
   function updateHUD() {
-    document.getElementById('myScore').textContent = score;
-    document.getElementById('myHP').textContent = Math.max(0, player.hp);
-  }
-
-  function loop() {
-    if (!running) return;
-    if (gameActive) update();
-    draw();
-    animId = requestAnimationFrame(loop);
-  }
-
-  function update() {
-    // Движение
-    let dx = 0, dy = 0;
-    if (keys['w'] || keys['ц']) dy -= 1;
-    if (keys['s'] || keys['ы']) dy += 1;
-    if (keys['a'] || keys['ф']) dx -= 1;
-    if (keys['d'] || keys['в']) dx += 1;
-    
-    if (dx && dy) { dx *= 0.707; dy *= 0.707; }
-    let newX = player.x + dx * 3;
-    let newY = player.y + dy * 3;
-
-    // Коллизии со стенами
-    let collide = false;
-    for (let w of walls) {
-      if (newX + player.r > w.x && newX - player.r < w.x + w.w &&
-          newY + player.r > w.y && newY - player.r < w.y + w.h) {
-        collide = true; break;
-      }
-    }
-    if (!collide) { player.x = newX; player.y = newY; }
-    
-    // Границы
-    player.x = Math.max(player.r, Math.min(W - player.r, player.x));
-    player.y = Math.max(player.r, Math.min(H - player.r, player.y));
-
-    // Прицел
-    player.angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
-
-    // Стрельба
-    if (mouse.down && Date.now() - lastShot > 400) {
-      bullets.push({
-        x: player.x + Math.cos(player.angle) * (player.r + 5),
-        y: player.y + Math.sin(player.angle) * (player.r + 5),
-        vx: Math.cos(player.angle) * 8,
-        vy: Math.sin(player.angle) * 8,
-        owner: 'me', life: 100
-      });
-      lastShot = Date.now();
-      if (conn && conn.open) conn.send({ type: 'shoot', angle: player.angle, x: player.x, y: player.y });
-    }
-
-    // Пули
-    bullets = bullets.filter(b => {
-      b.x += b.vx; b.y += b.vy; b.life--;
-      
-      // Стены
-      for (let w of walls) {
-        if (b.x > w.x && b.x < w.x + w.w && b.y > w.y && b.y < w.y + w.h) return false;
-      }
-      
-      // В противника
-      if (b.owner === 'me' && remotePlayer) {
-        if (Math.hypot(b.x - remotePlayer.x, b.y - remotePlayer.y) < 20) {
-          if (conn && conn.open) conn.send({ type: 'hit' });
-          remotePlayer.hp -= 20;
-          return false;
-        }
-      }
-      
-      // В меня
-      if (b.owner === 'enemy') {
-        if (Math.hypot(b.x - player.x, b.y - player.y) < 20) {
-          player.hp -= 20;
-          updateHUD();
-          if (player.hp <= 0) gameOver();
-          return false;
-        }
-      }
-
-      return b.life > 0 && b.x > 0 && b.x < W && b.y > 0 && b.y < H;
-    });
-
-    // Синхронизация позиции
-    if (conn && conn.open) conn.send({ type: 'pos', x: player.x, y: player.y, angle: player.angle, hp: player.hp });
-  }
-
-  function draw() {
-    ctx.clearRect(0, 0, W, H);
-    
-    // Сетка
-    ctx.strokeStyle = '#0d1a2b'; ctx.lineWidth = 1;
-    for (let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-    for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
-
-    // Стены
-    ctx.fillStyle = '#30363d';
-    for (let w of walls) ctx.fillRect(w.x, w.y, w.w, w.h);
-
-    // Пули
-    for (let b of bullets) {
-      ctx.fillStyle = b.owner === 'me' ? '#f0e130' : '#ff7b72';
-      ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI*2); ctx.fill();
-    }
-
-    // Второй игрок
-    if (remotePlayer) {
-      ctx.save();
-      ctx.translate(remotePlayer.x, remotePlayer.y);
-      ctx.rotate(remotePlayer.angle);
-      ctx.fillStyle = '#f85149';
-      ctx.fillRect(-15, -15, 30, 30);
-      ctx.fillStyle = '#30363d';
-      ctx.fillRect(0, -4, 25, 8);
-      ctx.restore();
-      
-      // HP над врагом
-      ctx.fillStyle = '#fff'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText('HP: ' + remotePlayer.hp, remotePlayer.x, remotePlayer.y - 30);
-    }
-
-    // Мой игрок
-    ctx.save();
-    ctx.translate(player.x, player.y);
-    ctx.rotate(player.angle);
-    ctx.fillStyle = player.color;
-    ctx.fillRect(-15, -15, 30, 30);
-    ctx.fillStyle = '#c9d1d9';
-    ctx.fillRect(0, -4, 25, 8);
-    ctx.restore();
-
-    // Прицел
-    ctx.strokeStyle = '#f0e130'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(mouse.x, mouse.y, 10, 0, Math.PI*2); ctx.stroke();
-  }
-
-  function gameOver() {
-    gameActive = false;
-    document.getElementById('status').textContent = `Вы уничтожены! Ваш счёт: ${score}`;
-    ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = '#f85149'; ctx.font = 'bold 48px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('GAME OVER', W/2, H/2);
+    document.getElementById('turnIndicator').textContent = isMyTurn ? 'ДА' : 'НЕТ';
+    document.getElementById('turnIndicator').style.color = isMyTurn ? '#3fb950' : '#f85149';
   }
 
   // --- МУЛЬТИПЛЕЕР (PeerJS) ---
   let peer = null, conn = null;
+  let remoteReady = false;
 
   window.initPeer = () => {
     if (peer) return;
@@ -344,8 +319,7 @@
     });
     
     peer.on('error', (err) => {
-      console.log('Ошибка PeerJS:', err);
-      document.getElementById('myPeerId').textContent = 'Ошибка сети (попробуйте VPN)';
+      document.getElementById('myPeerId').textContent = 'Ошибка сети';
     });
     
     peer.on('connection', c => {
@@ -372,40 +346,68 @@
       setStatus('Мультиплеер', true);
       document.getElementById('mpMsg').style.color = '#3fb950';
       document.getElementById('mpMsg').textContent = 'Соединение установлено!';
-      
-      // Старт игры для обоих
       window.startGame();
     });
     
     conn.on('data', data => {
-      if (data.type === 'pos') {
-        if (!remotePlayer) remotePlayer = { x: data.x, y: data.y, angle: data.angle, hp: data.hp };
-        else { 
-          remotePlayer.x = data.x; 
-          remotePlayer.y = data.y; 
-          remotePlayer.angle = data.angle;
-          remotePlayer.hp = data.hp;
+      if (data.type === 'ready') {
+        remoteReady = true;
+        if (!isSetupPhase) {
+          startBattle();
         }
       } else if (data.type === 'shoot') {
-        bullets.push({
-          x: data.x + Math.cos(data.angle) * 25,
-          y: data.y + Math.sin(data.angle) * 25,
-          vx: Math.cos(data.angle) * 8,
-          vy: Math.sin(data.angle) * 8,
-          owner: 'enemy', life: 100
-        });
-      } else if (data.type === 'hit') {
-        score += 100;
+        // Противник стреляет по нам
+        const hit = myShips.some(s => s[0] === data.x && s[1] === data.y);
+        if (hit) {
+          myHits.push([data.x, data.y]);
+          conn.send({ type: 'result', hit: true });
+          // Ход переходит к противнику, если он попал
+          isMyTurn = false;
+          document.getElementById('status').textContent = 'Противник попал! Его ход.';
+        } else {
+          conn.send({ type: 'result', hit: false });
+          isMyTurn = true;
+          document.getElementById('status').textContent = 'Противник промахнулся! Ваш ход.';
+        }
+        renderBoards();
+        updateHUD();
+      } else if (data.type === 'result') {
+        if (data.hit) {
+          enemyHits.push([window.lastShotX, window.lastShotY]);
+          isMyTurn = true;
+          document.getElementById('status').textContent = 'Вы попали! Стреляйте еще.';
+        } else {
+          enemyMisses.push([window.lastShotX, window.lastShotY]);
+          isMyTurn = false;
+          document.getElementById('status').textContent = 'Вы промахнулись. Ход противника.';
+        }
+        renderBoards();
         updateHUD();
       }
     });
 
     conn.on('close', () => {
       conn = null;
-      remotePlayer = null;
       setStatus('Одиночная', false);
       document.getElementById('mpMsg').textContent = 'Соединение разорвано';
+      gameActive = false;
     });
+  }
+
+  // Перехватываем координаты выстрела
+  const originalEnemyClick = handleEnemyBoardClick;
+  handleEnemyBoardClick = function(x, y) {
+    window.lastShotX = x;
+    window.lastShotY = y;
+    originalEnemyClick(x, y);
+  };
+
+  function startBattle() {
+    gameActive = true;
+    isMyTurn = true; // Первый ход тому, кто подключается (или хосту, неважно)
+    document.getElementById('status').textContent = 'Бой начался! Ваш ход.';
+    renderBoards();
+    updateHUD();
   }
 
   function setStatus(text, on) {
