@@ -211,10 +211,22 @@
 
   window.initPeer = () => {
     if (peer) return;
-    peer = new Peer();
+    
+    // ИСПОЛЬЗУЕМ РАБОЧИЙ СЕРВЕР
+    peer = new Peer(null, {
+      host: 'xfenix.ru',
+      secure: true,
+      port: 443,
+      path: '/'
+    });
     
     peer.on('open', id => {
       document.getElementById('myPeerId').textContent = id;
+    });
+    
+    peer.on('error', (err) => {
+      console.log('Ошибка PeerJS:', err);
+      document.getElementById('myPeerId').textContent = 'Ошибка сети (попробуйте VPN)';
     });
     
     peer.on('connection', c => {
