@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Крестики-нолики — Мультиплеер + Firebase</title>
+<title>Крестики-нолики — Образовательные вопросы</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -60,6 +60,30 @@
 
   .mp-box { background: #0d1117; border: 1px dashed #30363d; border-radius: 8px; padding: 15px; margin-top: 10px; }
   code { background: #0d1117; padding: 2px 6px; border-radius: 4px; color: #79c0ff; }
+
+  /* Модальное окно для вопросов */
+  #questionModal {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.85);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000;
+  }
+  #questionModal.hidden { display: none !important; }
+  .q-box {
+    background: #161b22; border: 2px solid #58a6ff;
+    border-radius: 14px; padding: 25px; max-width: 500px; width: 90%;
+    text-align: center;
+    box-shadow: 0 0 30px rgba(88,166,255,0.3);
+  }
+  .q-box h3 { margin-bottom: 20px; color: #c9d1d9; font-size: 20px; }
+  .q-options button {
+    display: block; width: 100%;
+    margin: 8px 0; background: #21262d; color: #c9d1d9;
+    font-size: 16px; padding: 12px;
+  }
+  .q-options button:hover { background: #30363d; }
+  .q-options button.correct { background: #238636; color: white; }
+  .q-options button.wrong { background: #da3633; color: white; }
 </style>
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
@@ -107,13 +131,21 @@
   <button class="secondary" onclick="resetGame()">Начать заново</button>
 </div>
 
+<!-- Модальное окно вопроса -->
+<div id="questionModal" class="hidden">
+  <div class="q-box">
+    <h3 id="qText">Вопрос</h3>
+    <div class="q-options" id="qOptions"></div>
+  </div>
+</div>
+
 <script>
   // --- FIREBASE SDK ---
   let db, currentUser = null;
   
   async function initFirebase() {
     const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js");
-    const { getFirestore, collection, getDocs, setDoc, doc, query, orderBy, limit, updateDoc, increment, getDoc } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js");
+    const { getFirestore, collection, getDocs, setDoc, doc, query, updateDoc, increment, getDoc } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js");
 
     const firebaseConfig = {
       apiKey: "AIzaSyB_8U1TVXhm_josJPrGzc8g1XPKwkrCQVM",
@@ -127,7 +159,7 @@
 
     const app = initializeApp(firebaseConfig);
     db = getFirestore(app);
-    window._fb = { collection, getDocs, setDoc, doc, query, orderBy, limit, updateDoc, increment, getDoc };
+    window._fb = { collection, getDocs, setDoc, doc, query, updateDoc, increment, getDoc };
   }
 
   // --- АВТОРИЗАЦИЯ ---
@@ -142,9 +174,9 @@
     const hash = btoa(password);
 
     try {
-      const { getDocs, setDoc, doc, query, collection, getDoc } = window._fb;
+      const { setDoc, doc, getDoc } = window._fb;
       const userDoc = doc(db, "users", username);
-      const userSnap = await getDoc(userDoc); // Проверяем напрямую
+      const userSnap = await getDoc(userDoc);
       let exists = userSnap.exists();
 
       if (mode === 'register') {
@@ -221,11 +253,26 @@
     } catch (e) { console.log(e); }
   }
 
+  // --- БАЗА ВОПРОСОВ ---
+  const QUESTIONS = [
+    { q: "Сколько будет 7 + 8?", options: ["15", "16", "14", "13"], correct: 0 },
+    { q: "Какое животное самое большое на планете?", options: ["Слон", "Синий кит", "Жираф", "Акула"], correct: 1 },
+    { q: "Столица России?", options: ["Санкт-Петербург", "Москва", "Казань", "Новосибирск"], correct: 1 },
+    { q: "Сколько цветов в радуге?", options: ["5", "6", "7", "8"], correct: 2 },
+    { q: "Какой газ мы вдыхаем для жизни?", options: ["Углекислый газ", "Азот", "Кислород", "Водород"], correct: 2 },
+    { q: "Сколько сторон у квадрата?", options: ["3", "4", "5", "6"], correct: 1 },
+    { q: "Кто написал 'Война и мир'?", options: ["Пушкин", "Толстой", "Достоевский", "Чехов"], correct: 1 },
+    { q: "Сколько дней в неделе?", options: ["5", "6", "7", "8"], correct: 2 },
+    { q: "Какая планета ближе всего к Солнцу?", options: ["Венера", "Меркурий", "Земля", "Марс"], correct: 1 },
+    { q: "Сколько будет 9 * 9?", options: ["81", "72", "90", "99"], correct: 0 }
+  ];
+
   // --- ИГРА (Крестики-нолики) ---
   let board = ['', '', '', '', '', '', '', '', ''];
   let mySymbol = 'X';
   let isMyTurn = false;
   let gameActive = false;
+  let pendingMoveIndex = -1; // Индекс, куда хотел походить игрок
 
   window.resetGame = () => {
     board = ['', '', '', '', '', '', '', '', ''];
@@ -258,6 +305,61 @@
   function makeMove(index) {
     if (!gameActive || !isMyTurn || board[index] !== '') return;
     
+    // Запускаем вопрос перед ходом
+    pendingMoveIndex = index;
+    showQuestion();
+  }
+
+  // --- МОДАЛЬНОЕ ОКНО ВОПРОСОВ ---
+  function showQuestion() {
+    const q = QUESTIONS[Math.floor(Math.random() * QUESTIONS.length)];
+    const modal = document.getElementById('questionModal');
+    const qText = document.getElementById('qText');
+    const qOptions = document.getElementById('qOptions');
+
+    qText.textContent = q.q;
+    qOptions.innerHTML = '';
+
+    q.options.forEach((opt, idx) => {
+      const btn = document.createElement('button');
+      btn.textContent = opt;
+      btn.onclick = () => checkAnswer(idx, q.correct, btn);
+      qOptions.appendChild(btn);
+    });
+
+    modal.classList.remove('hidden');
+  }
+
+  function checkAnswer(selected, correct, btn) {
+    const modal = document.getElementById('questionModal');
+    const allBtns = document.querySelectorAll('#qOptions button');
+    
+    // Блокируем кнопки
+    allBtns.forEach(b => b.disabled = true);
+    
+    if (selected === correct) {
+      btn.classList.add('correct');
+      setTimeout(() => {
+        modal.classList.add('hidden');
+        executeMove(pendingMoveIndex);
+      }, 1000);
+    } else {
+      btn.classList.add('wrong');
+      // Показываем правильный ответ
+      allBtns[correct].classList.add('correct');
+      
+      setTimeout(() => {
+        modal.classList.add('hidden');
+        document.getElementById('status').textContent = 'Неправильный ответ! Ход переходит противнику.';
+        isMyTurn = false;
+        pendingMoveIndex = -1;
+        updateStatus(); // Обновляем статус, чтобы было видно, что ход перешел
+        if (conn && conn.open) conn.send({ type: 'skip_turn' }); // Сообщаем другу, что мы промахнулись
+      }, 2000);
+    }
+  }
+
+  function executeMove(index) {
     board[index] = mySymbol;
     isMyTurn = false;
     renderBoard();
@@ -266,7 +368,7 @@
     if (checkWin(mySymbol)) {
       gameActive = false;
       document.getElementById('status').textContent = 'Вы победили! 🎉';
-      addWin(); // Запись в базу
+      addWin();
       return;
     }
     if (board.every(c => c !== '')) {
@@ -347,13 +449,18 @@
         if (checkWin(data.symbol)) {
           gameActive = false;
           document.getElementById('status').textContent = 'Вы проиграли 😢';
-          addLoss(); // Запись в базу
+          addLoss();
           return;
         }
         if (board.every(c => c !== '')) {
           gameActive = false;
           document.getElementById('status').textContent = 'Ничья!';
         }
+      } else if (data.type === 'skip_turn') {
+        // Противник неправильно ответил и пропускает ход
+        isMyTurn = true;
+        updateStatus();
+        document.getElementById('status').textContent = 'Противник ошибся! Ваш ход.';
       }
     });
 
