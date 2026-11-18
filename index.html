@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Крестики-нолики — Мультиплеер</title>
+<title>Крестики-нолики — Мультиплеер + Firebase</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -54,20 +54,9 @@
   .cell.o { color: #f85149; }
   #status { color: #8b949e; margin: 15px 0; text-align: center; min-height: 24px; font-size: 18px; font-weight: bold;}
   
-  /* Статистика */
-  .stats-box {
-    margin-top: 20px;
-    padding: 15px;
-    background: #0d1117;
-    border: 1px dashed #30363d;
-    border-radius: 8px;
-    text-align: center;
-    width: 100%;
-    max-width: 500px;
-  }
-  .stats-box h3 { color: #58a6ff; margin-bottom: 10px; }
-  .stats-row { display: flex; justify-content: space-around; font-size: 18px; }
-  .stats-row span { color: #f0883e; font-weight: bold; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  th, td { padding: 8px; border-bottom: 1px solid #30363d; text-align: left; }
+  th { color: #58a6ff; }
 
   .mp-box { background: #0d1117; border: 1px dashed #30363d; border-radius: 8px; padding: 15px; margin-top: 10px; }
   code { background: #0d1117; padding: 2px 6px; border-radius: 4px; color: #79c0ff; }
@@ -93,15 +82,6 @@
   <p id="status">Соединение...</p>
   <div id="board"></div>
   
-  <!-- Блок статистики -->
-  <div class="stats-box">
-    <h3>🏆 Ваша статистика</h3>
-    <div class="stats-row">
-      <div>Победы: <span id="winsCount">0</span></div>
-      <div>Поражения: <span id="lossesCount">0</span></div>
-    </div>
-  </div>
-  
   <div class="panel" style="margin-top:20px;">
     <h2>🌐 Мультиплеер (Прямое соединение)</h2>
     <p style="color:#8b949e; margin: 8px 0;">
@@ -115,48 +95,79 @@
     </div>
     <p id="mpMsg" style="margin-top:10px; color:#8b949e;"></p>
   </div>
+
+  <div class="panel">
+    <h2>🏆 Общая статистика сайта</h2>
+    <table id="leaderboard">
+      <thead><tr><th>Игрок</th><th>Победы</th><th>Поражения</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
   
   <button class="secondary" onclick="resetGame()">Начать заново</button>
 </div>
 
 <script>
-  // --- БАЗА ДАННЫХ (localStorage) ---
-  const DB = {
-    get(key) { return JSON.parse(localStorage.getItem(key) || 'null'); },
-    set(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
-  };
-  const getUsers = () => DB.get('users') || {};
-  const saveUsers = u => DB.set('users', u);
+  // --- FIREBASE SDK ---
+  let db, currentUser = null;
   
-  let currentUser = null;
-  
-  window.auth = (mode) => {
+  async function initFirebase() {
+    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js");
+    const { getFirestore, collection, getDocs, setDoc, doc, query, orderBy, limit, updateDoc, increment, getDoc } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js");
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyB_8U1TVXhm_josJPrGzc8g1XPKwkrCQVM",
+      authDomain: "game-6dc1e.firebaseapp.com",
+      projectId: "game-6dc1e",
+      storageBucket: "game-6dc1e.firebasestorage.app",
+      messagingSenderId: "430588155366",
+      appId: "1:430588155366:web:fc79d342feadefa9e49f227",
+      measurementId: "G-NQH7JR6LT1"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    window._fb = { collection, getDocs, setDoc, doc, query, orderBy, limit, updateDoc, increment, getDoc };
+  }
+
+  // --- АВТОРИЗАЦИЯ ---
+  window.auth = async (mode) => {
+    if (!db) { await initFirebase(); }
     const username = document.getElementById('username').value.trim();
     const password = document.getElementById('password').value.trim();
     const msg = document.getElementById('authMsg');
     msg.textContent = '';
-    
+
     if (!username || !password) { msg.textContent = 'Заполните поля'; return; }
     const hash = btoa(password);
-    const users = getUsers();
-    
-    if (mode === 'register') {
-      if (users[username]) { msg.textContent = 'Пользователь уже существует'; return; }
-      users[username] = hash;
-      saveUsers(users);
-      msg.style.color = '#3fb950'; msg.textContent = 'Успешно! Войдите.';
-    } else {
-      if (!users[username] || users[username] !== hash) { msg.textContent = 'Неверный логин или пароль'; return; }
-      currentUser = username;
-      window.showGame();
+
+    try {
+      const { getDocs, setDoc, doc, query, collection, getDoc } = window._fb;
+      const userDoc = doc(db, "users", username);
+      const userSnap = await getDoc(userDoc); // Проверяем напрямую
+      let exists = userSnap.exists();
+
+      if (mode === 'register') {
+        if (exists) { msg.textContent = 'Пользователь уже существует'; return; }
+        await setDoc(userDoc, { password: hash, wins: 0, losses: 0 });
+        msg.style.color = '#3fb950'; msg.textContent = 'Успешно! Войдите.';
+      } else {
+        if (!exists) { msg.textContent = 'Неверный логин или пароль'; return; }
+        if (userSnap.data().password !== hash) { msg.textContent = 'Неверный логин или пароль'; return; }
+        
+        currentUser = username;
+        window.showGame();
+      }
+    } catch (e) {
+      msg.textContent = 'Ошибка БД: ' + e.message;
     }
   };
-  
+
   window.showGame = () => {
     document.getElementById('authScreen').classList.add('hidden');
     document.getElementById('gameScreen').classList.remove('hidden');
     initPeer();
-    updateStatsUI();
+    renderLeaderboard();
     window.resetGame();
   };
   
@@ -166,32 +177,48 @@
     document.getElementById('authScreen').classList.remove('hidden');
   };
 
-  // --- СТАТИСТИКА ---
-  function getStats() {
-    const stats = DB.get('gameStats') || {};
-    if (!stats[currentUser]) stats[currentUser] = { wins: 0, losses: 0 };
-    return stats;
+  // --- СТАТИСТИКА (Firebase) ---
+  async function addWin() {
+    try {
+      const { doc, updateDoc, increment } = window._fb;
+      await updateDoc(doc(db, "users", currentUser), { wins: increment(1) });
+      renderLeaderboard();
+    } catch(e) { console.log(e); }
   }
 
-  function saveWin() {
-    const stats = getStats();
-    stats[currentUser].wins++;
-    DB.set('gameStats', stats);
-    updateStatsUI();
+  async function addLoss() {
+    try {
+      const { doc, updateDoc, increment } = window._fb;
+      await updateDoc(doc(db, "users", currentUser), { losses: increment(1) });
+      renderLeaderboard();
+    } catch(e) { console.log(e); }
   }
 
-  function saveLoss() {
-    const stats = getStats();
-    stats[currentUser].losses++;
-    DB.set('gameStats', stats);
-    updateStatsUI();
-  }
+  async function renderLeaderboard() {
+    try {
+      const { collection, getDocs, query } = window._fb;
+      const querySnapshot = await getDocs(query(collection(db, "users")));
+      const tbody = document.querySelector('#leaderboard tbody');
+      tbody.innerHTML = '';
+      
+      let users = [];
+      querySnapshot.forEach(doc => {
+        const data = doc.data();
+        users.push({ name: doc.id, wins: data.wins || 0, losses: data.losses || 0 });
+      });
 
-  function updateStatsUI() {
-    if (!currentUser) return;
-    const stats = getStats();
-    document.getElementById('winsCount').textContent = stats[currentUser].wins;
-    document.getElementById('lossesCount').textContent = stats[currentUser].losses;
+      users.sort((a, b) => b.wins - a.wins);
+
+      if (users.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3">Пока нет данных</td></tr>';
+      } else {
+        users.forEach(u => {
+          const row = document.createElement('tr');
+          row.innerHTML = `<td>${u.name}</td><td>${u.wins}</td><td>${u.losses}</td>`;
+          tbody.appendChild(row);
+        });
+      }
+    } catch (e) { console.log(e); }
   }
 
   // --- ИГРА (Крестики-нолики) ---
@@ -239,7 +266,7 @@
     if (checkWin(mySymbol)) {
       gameActive = false;
       document.getElementById('status').textContent = 'Вы победили! 🎉';
-      saveWin(); // Сохраняем победу
+      addWin(); // Запись в базу
       return;
     }
     if (board.every(c => c !== '')) {
@@ -320,7 +347,7 @@
         if (checkWin(data.symbol)) {
           gameActive = false;
           document.getElementById('status').textContent = 'Вы проиграли 😢';
-          saveLoss(); // Сохраняем поражение
+          addLoss(); // Запись в базу
           return;
         }
         if (board.every(c => c !== '')) {
@@ -343,8 +370,7 @@
 
   // Запуск
   window.addEventListener('load', () => {
-    const saved = DB.get('currentUser');
-    if (saved) { currentUser = saved; window.showGame(); }
+    initFirebase();
   });
 </script>
 </body>
