@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Морской бой — Мультиплеер</title>
+<title>Крестики-нолики — Мультиплеер</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -15,7 +15,7 @@
   .panel {
     background: #161b22; border: 1px solid #30363d;
     border-radius: 10px; padding: 20px; margin-bottom: 15px;
-    width: 100%; max-width: 820px;
+    width: 100%; max-width: 500px;
   }
   input {
     padding: 8px 12px; margin: 5px; border-radius: 6px;
@@ -28,63 +28,59 @@
     cursor: pointer; font-weight: bold;
   }
   button:hover { background: #2ea043; }
-  button.danger { background: #da3633; }
-  button.danger:hover { background: #f85149; }
   button.secondary { background: #30363d; }
   button.secondary:hover { background: #484f58; }
   .hidden { display: none !important; }
-  .hud {
-    display: flex; justify-content: space-between;
-    width: 800px; max-width: 100%; margin-bottom: 10px;
-    font-size: 16px; flex-wrap: wrap; gap: 10px; align-items: center;
-  }
-  .hud span { color: #f0883e; font-weight: bold; }
-  #status { color: #8b949e; margin: 10px 0; text-align: center; min-height: 24px; font-size: 18px;}
-  .row { display: flex; flex-wrap: wrap; align-items: center; }
-  .mp-box { background: #0d1117; border: 1px dashed #30363d; border-radius: 8px; padding: 15px; margin-top: 10px; }
-  code { background: #0d1117; padding: 2px 6px; border-radius: 4px; color: #79c0ff; }
-  .tag { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 13px; }
-  .tag.on { background: #238636; color: white; }
-  .tag.off { background: #484f58; color: #c9d1d9; }
-  
-  /* Поля для морского боя */
-  .boards { display: flex; gap: 40px; margin-top: 20px; }
-  .board-container { text-align: center; }
-  .board-container h3 { margin-bottom: 10px; color: #58a6ff; }
-  .grid {
+  #board {
     display: grid;
-    grid-template-columns: repeat(10, 30px);
-    grid-template-rows: repeat(10, 30px);
-    gap: 2px;
+    grid-template-columns: repeat(3, 100px);
+    grid-template-rows: repeat(3, 100px);
+    gap: 5px;
     background: #30363d;
-    padding: 2px;
-    border-radius: 5px;
+    padding: 5px;
+    border-radius: 10px;
+    margin-top: 10px;
   }
   .cell {
-    background: #0d1117;
-    width: 30px; height: 30px;
+    background: #161b22;
     display: flex; align-items: center; justify-content: center;
+    font-size: 60px; font-weight: bold;
     cursor: pointer;
-    border-radius: 2px;
-    transition: background 0.1s;
+    border-radius: 5px;
+    transition: background 0.2s;
   }
   .cell:hover { background: #21262d; }
-  .cell.ship { background: #58a6ff; }
-  .cell.hit { background: #f85149; }
-  .cell.miss { background: #484f58; }
-  .cell.preview { background: #3fb950; }
-  .cell.enemy-ship { background: #0d1117; } /* Скрываем вражеские корабли */
-  .cell.enemy-ship.hit { background: #f85149; }
+  .cell.x { color: #58a6ff; }
+  .cell.o { color: #f85149; }
+  #status { color: #8b949e; margin: 15px 0; text-align: center; min-height: 24px; font-size: 18px; font-weight: bold;}
+  
+  /* Статистика */
+  .stats-box {
+    margin-top: 20px;
+    padding: 15px;
+    background: #0d1117;
+    border: 1px dashed #30363d;
+    border-radius: 8px;
+    text-align: center;
+    width: 100%;
+    max-width: 500px;
+  }
+  .stats-box h3 { color: #58a6ff; margin-bottom: 10px; }
+  .stats-row { display: flex; justify-content: space-around; font-size: 18px; }
+  .stats-row span { color: #f0883e; font-weight: bold; }
+
+  .mp-box { background: #0d1117; border: 1px dashed #30363d; border-radius: 8px; padding: 15px; margin-top: 10px; }
+  code { background: #0d1117; padding: 2px 6px; border-radius: 4px; color: #79c0ff; }
 </style>
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
 
-<h1>🚢 Морской бой 🌊</h1>
+<h1>⭕ Крестики-нолики ❌</h1>
 
 <div id="authScreen" class="panel">
   <h2>Вход / Регистрация</h2>
-  <div class="row">
+  <div style="display:flex; flex-wrap:wrap;">
     <input id="username" placeholder="Логин" autocomplete="off" />
     <input id="password" type="password" placeholder="Пароль" />
   </div>
@@ -93,31 +89,20 @@
   <p id="authMsg" style="color:#f85149; margin-top:10px;"></p>
 </div>
 
-<div id="gameScreen" class="hidden" style="display:flex; flex-direction:column; align-items:center; width:100%;">
-  <div class="hud">
-    <div>Ваш ход? <span id="turnIndicator">Нет</span></div>
-    <div>Статус: <span id="mpStatus" class="tag off">Одиночная</span></div>
-  </div>
+<div id="gameScreen" class="hidden" style="display:flex; flex-direction:column; align-items:center;">
+  <p id="status">Соединение...</p>
+  <div id="board"></div>
   
-  <p id="status">Расставьте корабли (клик по полю).</p>
-
-  <div class="boards">
-    <div class="board-container">
-      <h3>Ваше поле</h3>
-      <div id="myBoard" class="grid"></div>
-    </div>
-    <div class="board-container">
-      <h3>Поле противника</h3>
-      <div id="enemyBoard" class="grid"></div>
+  <!-- Блок статистики -->
+  <div class="stats-box">
+    <h3>🏆 Ваша статистика</h3>
+    <div class="stats-row">
+      <div>Победы: <span id="winsCount">0</span></div>
+      <div>Поражения: <span id="lossesCount">0</span></div>
     </div>
   </div>
   
-  <div class="row" style="margin-top:20px;">
-    <button onclick="startGame()">Начать заново</button>
-    <button class="danger" onclick="logout()">Выйти</button>
-  </div>
-
-  <div class="panel">
+  <div class="panel" style="margin-top:20px;">
     <h2>🌐 Мультиплеер (Прямое соединение)</h2>
     <p style="color:#8b949e; margin: 8px 0;">
       Ваш ID: <code id="myPeerId">подключение...</code>
@@ -130,6 +115,8 @@
     </div>
     <p id="mpMsg" style="margin-top:10px; color:#8b949e;"></p>
   </div>
+  
+  <button class="secondary" onclick="resetGame()">Начать заново</button>
 </div>
 
 <script>
@@ -169,7 +156,8 @@
     document.getElementById('authScreen').classList.add('hidden');
     document.getElementById('gameScreen').classList.remove('hidden');
     initPeer();
-    window.startGame();
+    updateStatsUI();
+    window.resetGame();
   };
   
   window.logout = () => {
@@ -178,135 +166,107 @@
     document.getElementById('authScreen').classList.remove('hidden');
   };
 
-  // --- ИГРА (Морской бой) ---
-  const BOARD_SIZE = 10;
-  let myShips = []; // Массив координат моих кораблей [x, y]
-  let enemyHits = []; // Попадания по врагу
-  let myHits = []; // Попадания по мне
+  // --- СТАТИСТИКА ---
+  function getStats() {
+    const stats = DB.get('gameStats') || {};
+    if (!stats[currentUser]) stats[currentUser] = { wins: 0, losses: 0 };
+    return stats;
+  }
+
+  function saveWin() {
+    const stats = getStats();
+    stats[currentUser].wins++;
+    DB.set('gameStats', stats);
+    updateStatsUI();
+  }
+
+  function saveLoss() {
+    const stats = getStats();
+    stats[currentUser].losses++;
+    DB.set('gameStats', stats);
+    updateStatsUI();
+  }
+
+  function updateStatsUI() {
+    if (!currentUser) return;
+    const stats = getStats();
+    document.getElementById('winsCount').textContent = stats[currentUser].wins;
+    document.getElementById('lossesCount').textContent = stats[currentUser].losses;
+  }
+
+  // --- ИГРА (Крестики-нолики) ---
+  let board = ['', '', '', '', '', '', '', '', ''];
+  let mySymbol = 'X';
   let isMyTurn = false;
   let gameActive = false;
-  let isSetupPhase = true;
 
-  // Корабли: 1 (4-палубный), 2 (3-палубных), 3 (2-палубных), 4 (1-палубных)
-  const SHIP_SIZES = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1];
-  let currentShipIndex = 0;
-  let isVertical = false;
-
-  window.startGame = () => {
-    myShips = [];
-    enemyHits = [];
-    myHits = [];
-    isMyTurn = false;
-    gameActive = false;
-    isSetupPhase = true;
-    currentShipIndex = 0;
-    isVertical = false;
-    document.getElementById('status').textContent = 'Расставьте корабли (клик по полю). Нажмите "Пробел" для поворота.';
-    renderBoards();
-    updateHUD();
+  window.resetGame = () => {
+    board = ['', '', '', '', '', '', '', '', ''];
+    gameActive = true;
+    isMyTurn = (mySymbol === 'X');
+    renderBoard();
+    updateStatus();
   };
 
-  document.addEventListener('keydown', e => {
-    if (isSetupPhase && e.code === 'Space') {
-      isVertical = !isVertical;
-      e.preventDefault();
-    }
-  });
-
-  function renderBoards() {
-    const myBoardEl = document.getElementById('myBoard');
-    const enemyBoardEl = document.getElementById('enemyBoard');
-    myBoardEl.innerHTML = '';
-    enemyBoardEl.innerHTML = '';
-
-    for (let y = 0; y < BOARD_SIZE; y++) {
-      for (let x = 0; x < BOARD_SIZE; x++) {
-        // Мое поле
-        const myCell = document.createElement('div');
-        myCell.className = 'cell';
-        if (myShips.some(s => s[0] === x && s[1] === y)) myCell.classList.add('ship');
-        if (myHits.some(h => h[0] === x && h[1] === y)) myCell.classList.add('hit');
-        myCell.onclick = () => handleMyBoardClick(x, y);
-        myBoardEl.appendChild(myCell);
-
-        // Поле врага
-        const enemyCell = document.createElement('div');
-        enemyCell.className = 'cell';
-        if (enemyHits.some(h => h[0] === x && h[1] === y)) enemyCell.classList.add('hit');
-        // Если мы стреляли мимо (нужно добавить массив промахов)
-        if (enemyMisses && enemyMisses.some(h => h[0] === x && h[1] === y)) enemyCell.classList.add('miss');
-        enemyCell.onclick = () => handleEnemyBoardClick(x, y);
-        enemyBoardEl.appendChild(enemyCell);
-      }
+  function renderBoard() {
+    const boardEl = document.getElementById('board');
+    boardEl.innerHTML = '';
+    for (let i = 0; i < 9; i++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      if (board[i] === 'X') cell.classList.add('x');
+      if (board[i] === 'O') cell.classList.add('o');
+      cell.textContent = board[i];
+      cell.onclick = () => makeMove(i);
+      boardEl.appendChild(cell);
     }
   }
 
-  let enemyMisses = [];
-
-  function handleMyBoardClick(x, y) {
-    if (!isSetupPhase) return;
-    if (myShips.some(s => s[0] === x && s[1] === y)) return;
-    if (currentShipIndex >= SHIP_SIZES.length) return;
-
-    const size = SHIP_SIZES[currentShipIndex];
-    const newShipCoords = [];
-    let canPlace = true;
-
-    for (let i = 0; i < size; i++) {
-      const nx = isVertical ? x : x + i;
-      const ny = isVertical ? y + i : y;
-      
-      if (nx >= BOARD_SIZE || ny >= BOARD_SIZE) { canPlace = false; break; }
-      if (myShips.some(s => s[0] === nx && s[1] === ny)) { canPlace = false; break; }
-      // Проверка на соседние корабли (упрощенно, без касаний по диагонали)
-      for (let dx = -1; dx <= 1; dx++) {
-        for (let dy = -1; dy <= 1; dy++) {
-            if (myShips.some(s => s[0] === nx + dx && s[1] === ny + dy)) { canPlace = false; }
-        }
-      }
-      newShipCoords.push([nx, ny]);
-    }
-
-    if (canPlace) {
-      myShips.push(...newShipCoords);
-      currentShipIndex++;
-      renderBoards();
-      
-      if (currentShipIndex >= SHIP_SIZES.length) {
-        isSetupPhase = false;
-        document.getElementById('status').textContent = 'Корабли расставлены! Ждем противника...';
-        if (conn && conn.open) conn.send({ type: 'ready' });
-      }
-    } else {
-      document.getElementById('status').textContent = 'Здесь нельзя ставить корабль!';
-    }
+  function updateStatus() {
+    const statusEl = document.getElementById('status');
+    if (!gameActive) return;
+    statusEl.textContent = isMyTurn ? 'Ваш ход (' + mySymbol + ')' : 'Ход противника...';
   }
 
-  function handleEnemyBoardClick(x, y) {
-    if (isSetupPhase || !gameActive || !isMyTurn) return;
-    if (enemyHits.some(h => h[0] === x && h[1] === y)) return;
-    if (enemyMisses.some(h => h[0] === x && h[1] === y)) return;
-
+  function makeMove(index) {
+    if (!gameActive || !isMyTurn || board[index] !== '') return;
+    
+    board[index] = mySymbol;
+    isMyTurn = false;
+    renderBoard();
+    updateStatus();
+    
+    if (checkWin(mySymbol)) {
+      gameActive = false;
+      document.getElementById('status').textContent = 'Вы победили! 🎉';
+      saveWin(); // Сохраняем победу
+      return;
+    }
+    if (board.every(c => c !== '')) {
+      gameActive = false;
+      document.getElementById('status').textContent = 'Ничья!';
+      return;
+    }
+    
     if (conn && conn.open) {
-      conn.send({ type: 'shoot', x, y });
-      isMyTurn = false;
-      updateHUD();
-      document.getElementById('status').textContent = 'Выстрел... Ожидание...';
+      conn.send({ type: 'move', index, symbol: mySymbol });
     }
   }
 
-  function updateHUD() {
-    document.getElementById('turnIndicator').textContent = isMyTurn ? 'ДА' : 'НЕТ';
-    document.getElementById('turnIndicator').style.color = isMyTurn ? '#3fb950' : '#f85149';
+  function checkWin(symbol) {
+    const wins = [
+      [0,1,2], [3,4,5], [6,7,8],
+      [0,3,6], [1,4,7], [2,5,8],
+      [0,4,8], [2,4,6]
+    ];
+    return wins.some(line => line.every(i => board[i] === symbol));
   }
 
   // --- МУЛЬТИПЛЕЕР (PeerJS) ---
   let peer = null, conn = null;
-  let remoteReady = false;
 
   window.initPeer = () => {
     if (peer) return;
-    
     peer = new Peer(null, {
       host: 'xfenix.ru',
       secure: true,
@@ -325,8 +285,9 @@
     peer.on('connection', c => {
       if (conn) { c.close(); return; }
       conn = c;
+      mySymbol = 'O'; // Хост играет за O
       setupConn();
-      setStatus('Мультиплеер', true);
+      document.getElementById('mpMsg').style.color = '#3fb950';
       document.getElementById('mpMsg').textContent = 'К вам подключились!';
     });
   };
@@ -338,81 +299,41 @@
     if (!peer) { alert('Сначала войдите'); return; }
     
     conn = peer.connect(friendId);
+    mySymbol = 'X'; // Тот, кто подключается — X
     setupConn();
   };
 
   function setupConn() {
     conn.on('open', () => {
-      setStatus('Мультиплеер', true);
       document.getElementById('mpMsg').style.color = '#3fb950';
       document.getElementById('mpMsg').textContent = 'Соединение установлено!';
-      window.startGame();
+      window.resetGame();
     });
     
     conn.on('data', data => {
-      if (data.type === 'ready') {
-        remoteReady = true;
-        if (!isSetupPhase) {
-          startBattle();
+      if (data.type === 'move') {
+        board[data.index] = data.symbol;
+        isMyTurn = true;
+        renderBoard();
+        updateStatus();
+        
+        if (checkWin(data.symbol)) {
+          gameActive = false;
+          document.getElementById('status').textContent = 'Вы проиграли 😢';
+          saveLoss(); // Сохраняем поражение
+          return;
         }
-      } else if (data.type === 'shoot') {
-        // Противник стреляет по нам
-        const hit = myShips.some(s => s[0] === data.x && s[1] === data.y);
-        if (hit) {
-          myHits.push([data.x, data.y]);
-          conn.send({ type: 'result', hit: true });
-          // Ход переходит к противнику, если он попал
-          isMyTurn = false;
-          document.getElementById('status').textContent = 'Противник попал! Его ход.';
-        } else {
-          conn.send({ type: 'result', hit: false });
-          isMyTurn = true;
-          document.getElementById('status').textContent = 'Противник промахнулся! Ваш ход.';
+        if (board.every(c => c !== '')) {
+          gameActive = false;
+          document.getElementById('status').textContent = 'Ничья!';
         }
-        renderBoards();
-        updateHUD();
-      } else if (data.type === 'result') {
-        if (data.hit) {
-          enemyHits.push([window.lastShotX, window.lastShotY]);
-          isMyTurn = true;
-          document.getElementById('status').textContent = 'Вы попали! Стреляйте еще.';
-        } else {
-          enemyMisses.push([window.lastShotX, window.lastShotY]);
-          isMyTurn = false;
-          document.getElementById('status').textContent = 'Вы промахнулись. Ход противника.';
-        }
-        renderBoards();
-        updateHUD();
       }
     });
 
     conn.on('close', () => {
       conn = null;
-      setStatus('Одиночная', false);
       document.getElementById('mpMsg').textContent = 'Соединение разорвано';
-      gameActive = false;
     });
-  }
-
-  // Перехватываем координаты выстрела
-  const originalEnemyClick = handleEnemyBoardClick;
-  handleEnemyBoardClick = function(x, y) {
-    window.lastShotX = x;
-    window.lastShotY = y;
-    originalEnemyClick(x, y);
-  };
-
-  function startBattle() {
-    gameActive = true;
-    isMyTurn = true; // Первый ход тому, кто подключается (или хосту, неважно)
-    document.getElementById('status').textContent = 'Бой начался! Ваш ход.';
-    renderBoards();
-    updateHUD();
-  }
-
-  function setStatus(text, on) {
-    const el = document.getElementById('mpStatus');
-    if (el) { el.textContent = text; el.className = 'tag ' + (on ? 'on' : 'off'); }
   }
 
   window.copyId = () => {
